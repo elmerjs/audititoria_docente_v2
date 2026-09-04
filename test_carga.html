@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Carga Única de Excel (Labor y Oferta)</title>
+</head>
+<body style="font-family: sans-serif; padding: 30px;">
+    <h2>Cargar Archivo Unificado (Labor + Oferta)</h2>
+    <form action="cargar_excel.php" method="POST" enctype="multipart/form-data">
+        <label>Período Académico:</label><br>
+        <input type="text" name="periodo" value="2026.2" required><br><br>
+
+        <label>Archivo Excel único (.xlsx):</label><br>
+        <input type="file" name="archivo_excel" accept=".xlsx, .xls" required><br><br>
+
+        <button type="submit">Procesar y Distribuir Tablas</button>
+    </form>
+</body>
+</html>
