@@ -280,9 +280,6 @@ thead th {
     padding-left: 10px;
     padding-right: 10px;
 }
-    .badge-codigo-xs {
-    font-size: 7.5px;
-}
 </style>
 </head>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -370,18 +367,6 @@ thead th {
                     <span class="kpi-mini-valor text-indigo-600" id="kpi-codigo-materia">0</span>
                     <span class="kpi-mini-label">Código</span>
                 </span>
-                <!-- NUEVO KPI Duplicados exactos -->
-                <span class="kpi-mini" title="Registros duplicados exactos">
-                    <i class="fa-solid fa-copy" style="color:#06b6d4"></i>
-                    <span class="kpi-mini-valor text-cyan-700" id="kpi-duplicado">0</span>
-                    <span class="kpi-mini-label">Duplicados</span>
-                </span>
-                <!-- NUEVO KPI 0 Matriculados -->
-                <span class="kpi-mini" title="Grupos con cero estudiantes matriculados">
-                    <i class="fa-solid fa-users-slash" style="color:#ea580c"></i>
-                    <span class="kpi-mini-valor text-orange-600" id="kpi-cero-matriculados">0</span>
-                    <span class="kpi-mini-label">0 Matr.</span>
-                </span>
             </div>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
@@ -417,7 +402,6 @@ thead th {
                     <option value="REVISAR_PROGRAMA_DIFERENTE">Programa Diferente / Similar</option>
                     <option value="LABOR_INEXISTENTE">No existe en Labor</option>
                     <option value="REVISAR_CODIGO_MATERIA_DIFERENTE">Revisar código de materia</option>
-                    <option value="CERO_MATRICULADOS">0 Matriculados</option>
                     <option value="PE_CERO">PE = 0</option>
                 </select>
             </div>
@@ -486,10 +470,8 @@ thead th {
         <th data-col="horas" onclick="ordenarPor('horas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Horas <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="alertas" onclick="ordenarPor('alertas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700" title="Resultado del cruce Labor vs Oferta y validaciones internas de Labor.">Alertas <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="historica" onclick="ordenarPor('historica')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Alerta Histórica <span class="sort-arrow text-blue-300"></span></th>
-       <th data-col="observacion" onclick="ordenarPor('observacion')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">
-            Observación <span class="sort-arrow text-blue-300"></span>
-        </th>
-                <th class="py-3 px-4 text-center">Acciones</th>
+        <th class="py-3 px-4 text-center">Observación</th>
+        <th class="py-3 px-4 text-center">Acciones</th>
     </tr>
 </thead>
 <tbody id="tbl-body" class="divide-y divide-gray-200">
@@ -629,10 +611,9 @@ function claveFilaObs(row) {
     return `${row.identificacion}|${row.periodo}|${row.codigo_materia}|${row.grupo}`;
 }
 
-// ---- FUNCIÓN ACTUALIZADA: prioriza alerta_duplicado_exacto ----
 function estadoOriginalDeFila(row) {
+    // Prioriza la alerta interna de duplicidad, igual que el resto del dashboard.
     if (row.alerta_labor === 'DUPLICIDAD_GRUPO_EXCESO_PE') return 'DUPLICIDAD_GRUPO_EXCESO_PE';
-    if (row.alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') return 'LABOR_DUPLICADO_EXACTO';
     return row.estado_alerta;
 }
 // Variables para relaciones entre facultad y departamento (desde labor)
@@ -794,13 +775,6 @@ async function cargarAlertas(pagina = 1) {
             document.getElementById('kpi-servicio').innerText = json.kpis.prestacion_servicio || 0;
             document.getElementById('kpi-labor-inexistente').innerText = json.kpis.labor_inexistente || 0;
             document.getElementById('kpi-codigo-materia').innerText = json.kpis.revisar_codigo_materia || 0;
-            // ---- ASIGNAR VALOR AL NUEVO KPI ----
-            document.getElementById('kpi-duplicado').innerText = json.kpis.duplicado_exacto || 0;
-            // ---- NUEVO KPI 0 Matriculados (con validación de existencia) ----
-            const kpiCeroMatriculadosEl = document.getElementById('kpi-cero-matriculados');
-            if (kpiCeroMatriculadosEl) {
-                kpiCeroMatriculadosEl.innerText = json.kpis.cero_matriculados || 0;
-            }
 
             datosCargados = data;
             renderizarTabla();
@@ -813,7 +787,6 @@ async function cargarAlertas(pagina = 1) {
 /* ----------------------------------------------------------------
    ORDENAMIENTO CON PRIORIDAD PARA LA COLUMNA "Alertas"
    ---------------------------------------------------------------- */
-// ---- CONSTANTE PRIORIDAD_ALERTA AMPLIADA ----
 const PRIORIDAD_ALERTA = {
     'OFERTA_INEXISTENTE|DUPLICIDAD_GRUPO_EXCESO_PE': 0,
     'OFERTA_INEXISTENTE|': 1,
@@ -825,31 +798,12 @@ const PRIORIDAD_ALERTA = {
     'REVISAR_PROGRAMA_DIFERENTE|': 7,
     'OK|DUPLICIDAD_GRUPO_EXCESO_PE': 8,
     'OK|': 9,
-    // Nuevas claves para duplicado exacto
-    'OFERTA_INEXISTENTE|DUPLICADO_EXACTO': 10,
-    'LABOR_INEXISTENTE|DUPLICADO_EXACTO': 11,
-    'REVISAR_CODIGO_MATERIA_DIFERENTE|DUPLICADO_EXACTO': 12,
-    'FALTA_GRUPO_EN_OFERTA|DUPLICADO_EXACTO': 13,
-    'REVISAR_PROGRAMA_DIFERENTE|DUPLICADO_EXACTO': 14,
-    'OK|DUPLICADO_EXACTO': 15,
-    'CERO_MATRICULADOS|DUPLICIDAD_GRUPO_EXCESO_PE': 16,
-    'CERO_MATRICULADOS|': 17,
-    'CERO_MATRICULADOS|DUPLICADO_EXACTO': 18,
 };
 
 function getPrioridadAlerta(row) {
     const estado = row.estado_alerta;
-    // Usar alerta_duplicado_exacto o alerta_labor según corresponda
-    const labor = row.alerta_labor || '';
-    const duplicadoExacto = row.alerta_duplicado_exacto || '';
-    // Primero priorizar duplicado exacto si existe
-    if (duplicadoExacto === 'LABOR_DUPLICADO_EXACTO') {
-        const clave = `${estado}|DUPLICADO_EXACTO`;
-        if (PRIORIDAD_ALERTA[clave] !== undefined) return PRIORIDAD_ALERTA[clave];
-        return 15; // fallback
-    }
-    // Si no, usar el estado original con labor
-    const clave = `${estado}|${labor}`;
+    const labor = row.alerta_labor;
+    const clave = `${estado}|${labor || ''}`;
     return PRIORIDAD_ALERTA[clave] ?? 10;
 }
 
@@ -866,16 +820,6 @@ const sortKeyFns = {
         if (!r.alerta_historica) return 9;
         return r.alerta_historica === 'SALTO_FUERTE' ? 0 : 1;
     },
-    observacion: r => {
-        const estado = r.estado_observacion_asociada || '';
-        const prioridad = {
-            'ABIERTA': 0,
-            'SUBSANADA': 1,
-            'CERRADA': 2,
-            '': 3
-        };
-        return prioridad[estado] ?? 3;
-    }
 };
 
 function ordenarPor(key) {
@@ -979,7 +923,7 @@ function renderizarTabla() {
             </div>
         </td>
     </tr>`;
-});
+}).join('');
 
 
 }
@@ -1027,7 +971,7 @@ function badgePECero(pe) {
 }
 
 /* ----------------------------------------------------------------
-   RENDER DE ALERTAS COMBINADAS (CON NUEVOS BADGES SECUNDARIOS)
+   RENDER DE ALERTAS COMBINADAS (con badge PE 0 incluido)
    ---------------------------------------------------------------- */
 function renderAlertasCombinadas(row) {
     const estado = row.estado_alerta;
@@ -1037,7 +981,10 @@ function renderAlertasCombinadas(row) {
     const tienePECero = esPECero(pe);
 
     // -----------------------------------------------------------
-    // 1. Badge PRINCIPAL
+    // 1. Determinar el badge PRINCIPAL (color/texto/tooltip) según
+    //    el estado_alerta. Ya no se hace "return" aquí: solo se
+    //    calculan los datos, para poder seguir agregando badges
+    //    secundarios después sin perderlos.
     // -----------------------------------------------------------
     let claseEstado = 'bg-gray-100 text-gray-800 border-gray-300';
     let textoEstado = estado || 'SIN ESTADO';
@@ -1048,7 +995,7 @@ function renderAlertasCombinadas(row) {
         claseEstado = 'bg-green-100 text-green-800 border-green-300';
         textoEstado = 'OK';
     } else if (estado === 'OFERTA_INEXISTENTE') {
-        claseEstado = 'bg-red-100 text-red-800 border-red-300 badge-codigo-xs';
+        claseEstado = 'bg-red-100 text-red-800 border-red-300';
         textoEstado = 'OFERTA<br>INEXISTENTE';
     } else if (estado === 'FALTA_GRUPO_EN_OFERTA') {
         claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
@@ -1073,12 +1020,8 @@ function renderAlertasCombinadas(row) {
         textoEstado = 'NO EXISTE<br>EN LABOR';
         tooltipPrincipal = 'El registro existe en Oferta, pero no se encontró una asignación correspondiente en Labor.';
         programaContexto = row.programa_oferta || '';
-    } else if (estado === 'CERO_MATRICULADOS') {
-        claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
-        textoEstado = '0<br>MATRICULADOS';
-        tooltipPrincipal = 'La oferta asociada a este registro tiene cero estudiantes matriculados.';
     } else if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE') {
-         claseEstado = 'bg-indigo-100 text-indigo-800 border-indigo-300 badge-codigo-xs';
+        claseEstado = 'bg-indigo-100 text-indigo-800 border-indigo-300';
         textoEstado = 'REVISAR<br>CÓDIGO MATERIA';
         const dc = row.detalle_codigo_posible_error || {};
         const pct = (dc.similitud_programa !== null && dc.similitud_programa !== undefined)
@@ -1087,6 +1030,10 @@ function renderAlertasCombinadas(row) {
         programaContexto = row.programa_labor || '';
     }
 
+    // -----------------------------------------------------------
+    // 2. data-attrs para el badge principal (mismo contexto que
+    //    usaba cada rama antes de la reescritura).
+    // -----------------------------------------------------------
     const dataAttrs = `data-identificacion="${esc(row.identificacion)}" data-periodo="${esc(row.periodo)}" `
         + `data-codigo-materia="${esc(row.codigo_materia)}" data-programa="${esc(programaContexto)}" `
         + `data-grupo="${esc(row.grupo)}" data-estado-alerta="${esc(estado)}" `
@@ -1096,60 +1043,31 @@ function renderAlertasCombinadas(row) {
         ${dataAttrs} title="${esc(tooltipPrincipal)}">${textoEstado}</button>`;
 
     // -----------------------------------------------------------
-    // 2. Badges SECUNDARIOS (incluye los 3 nuevos)
+    // 3. Badges SECUNDARIOS: ahora SIEMPRE se evalúan, sin importar
+    //    cuál haya sido el estado principal. Esto es lo que antes
+    //    se perdía para LABOR_INEXISTENTE / REVISAR_CODIGO_MATERIA_DIFERENTE.
     // -----------------------------------------------------------
     const badgesSecundarios = [];
 
-    // DUPLICIDAD DE GRUPO (existente)
     if (tieneDuplicidad) {
         const detalleDup = row.detalle_alerta_labor || {};
         const tooltipDup = detalleDup.motivo
             ? `Duplicidad de grupo: ${detalleDup.docentes || ''} · Horas totales: ${detalleDup.horas_totales ?? '—'} · PE: ${detalleDup.pe_unico ?? '—'} · Exceso: ${detalleDup.exceso_horas ?? '—'}`
             : 'Este grupo tiene varios docentes asignados y la suma de horas supera el PE.';
         badgesSecundarios.push(
-            `<span class="badge-alerta badge-alerta-secundario con-salto bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">HORAS<br>EXCEDE PE</span>`
+            `<span class="badge-alerta badge-alerta-secundario bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">DUPLICIDAD DE GRUPO</span>`
         );
     }
 
-    // PE 0 (existente)
     if (tienePECero) {
         badgesSecundarios.push(
             `<span class="badge-alerta badge-alerta-secundario bg-red-50 text-red-700 border-red-300" title="El PE de esta asignación es 0. Este valor requiere revisión."><i class="fa-solid fa-triangle-exclamation"></i>&nbsp;PE 0</span>`
         );
     }
 
-    // ---- NUEVO: PROGRAMA SIMILAR / DIFIERE (solo para REVISAR_CODIGO_MATERIA_DIFERENTE) ----
-    if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE' && row.coincidencia_programa && ['ALTA','MEDIA','BAJA'].includes(row.coincidencia_programa)) {
-        const pct = row.similitud_programa !== null && row.similitud_programa !== undefined ? Math.round(row.similitud_programa * 100) : 0;
-        const texto = (row.coincidencia_programa === 'ALTA' || row.coincidencia_programa === 'MEDIA') ? `PROGRAMA SIMILAR (${pct}%)` : 'PROGRAMA DIFIERE';
-        const tooltip = `Programa Labor: ${row.programa_labor || '—'} | Programa Oferta: ${row.programa_oferta || '—'} | Similitud: ${pct}%`;
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-violet-100 text-violet-800 border-violet-300" title="${esc(tooltip)}">${texto}</span>`);
-    }
-
-    // ---- NUEVO: REGISTRO DUPLICADO (cuando alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') ----
-    if (row.alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') {
-        const det = row.detalle_alerta_duplicado || {};
-        const tooltip = `Repeticiones: ${det.cantidad_registros || '?'} | Programas: ${det.programas || '—'}`;
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-cyan-100 text-cyan-800 border-cyan-300" title="${esc(tooltip)}">GRUPO X2 Labor</span>`);
-    }
-
-    // ---- NUEVO: 0 MATRICULADOS (cuando oferta existe y matriculados === 0) ----
-    // CORREGIDO: usar exclusivamente los campos de la oferta asociada
-    const matriculadosCruce = row.matriculados_oferta ?? row.matriculadosoferta ?? null;
-    const mostrarCeroMatriculados = estado !== 'CERO_MATRICULADOS' &&
-                                    estado !== 'OFERTA_INEXISTENTE' &&
-                                    estado !== 'LABOR_INEXISTENTE' &&
-                                    matriculadosCruce !== null &&
-                                    matriculadosCruce !== '' &&
-                                    Number.isFinite(Number(matriculadosCruce)) &&
-                                    Number(matriculadosCruce) === 0;
-
-    if (mostrarCeroMatriculados) {
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-orange-100 text-orange-800 border-orange-300" title="El grupo asociado a este cruce no tiene estudiantes matriculados.">0 MATRICULADOS</span>`);
-    }
-
     // -----------------------------------------------------------
-    // 3. Ensamblado final
+    // 4. Ensamblar: badge principal y secundarios en línea horizontal
+    //    con flex-wrap (ver .alertas-stack en el CSS).
     // -----------------------------------------------------------
     return `<div class="alertas-stack">${badgePrincipalHtml}${badgesSecundarios.join('')}</div>`;
 }

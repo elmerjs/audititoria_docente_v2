@@ -243,14 +243,6 @@ function filaOfertaSinLabor($oferta)
         'matriculados_oferta' => $oferta['matriculados'] ?? null,
         'cupo_oferta' => $oferta['cupo'] ?? null,
 
-        // Compatibilidad con frontend
-        'matriculadosoferta' => $oferta['matriculados'] ?? null,
-        'cupooferta' => $oferta['cupo'] ?? null,
-        'programaoferta' => $oferta['programa'] ?? null,
-        'materiaoferta' => $oferta['materia'] ?? null,
-        'codigomateriaoferta' => $oferta['codigo_materia'] ?? null,
-        'grupooferta' => $oferta['grupo'] ?? null,
-
         'facultad_labor' => null,
         'departamento_labor' => null,
         'programa_labor' => null,
@@ -271,9 +263,6 @@ function filaOfertaSinLabor($oferta)
         'coincidencia_programa' => 'NO_APLICA',
         'similitud_programa' => null,
         'motivo_programa' => 'El registro existe en Oferta, pero no se encontró una asignación correspondiente en Labor.',
-        
-        // Trazabilidad
-        'oferta_id_asociada' => $oferta['id'] ?? null,
     ];
 }
 
@@ -378,7 +367,6 @@ function hayConflictoNivelMateria($materiaA, $materiaB)
  * falsos positivos entre materias de niveles consecutivos.
  *
  * Retorna null si no hay indicio suficiente, o un arreglo con el detalle.
- * CORREGIDO: Ahora prioriza ofertas con matrícula positiva para desempates.
  */
 function detectarPosibleCodigoErroneo($filaLabor, array $ofertaMismoDocente, $umbralMateria = 0.70, $margenEmpate = 0.05)
 {
@@ -394,6 +382,8 @@ function detectarPosibleCodigoErroneo($filaLabor, array $ofertaMismoDocente, $um
         }
 
         // Descartar candidatos cuyo nivel de curso contradiga el de Labor
+        // (ej. "Inglés IV" no puede sustituir a "Inglés V"), sin importar
+        // qué tan alta sea la similitud textual bruta.
         if (hayConflictoNivelMateria($materiaLabor, $o['materia'])) {
             continue;
         }
@@ -415,81 +405,19 @@ function detectarPosibleCodigoErroneo($filaLabor, array $ofertaMismoDocente, $um
         return null;
     }
 
-    // Filtrar candidatos con la máxima similitud de materia (o dentro del margen de empate)
     $maxSimMateria = max(array_column($candidatos, 'sim_materia'));
+
     $empatados = array_values(array_filter($candidatos, function ($c) use ($maxSimMateria, $margenEmpate) {
         return $c['sim_materia'] >= ($maxSimMateria - $margenEmpate);
     }));
-
-    // Ordenar con criterios de desempate: programa > matrícula > cupo > grupo > id
-    usort($empatados, function (array $a, array $b): int {
-        // 1. Mayor similitud de programa primero
-        $cmpPrograma = ($b['sim_programa'] ?? 0) <=> ($a['sim_programa'] ?? 0);
-        if ($cmpPrograma !== 0) {
-            return $cmpPrograma;
-        }
-
-        $ofertaA = $a['oferta'] ?? [];
-        $ofertaB = $b['oferta'] ?? [];
-
-        // Obtener matriculados, tratando null como -1 (menor prioridad)
-        $matA = isset($ofertaA['matriculados']) && is_numeric($ofertaA['matriculados'])
-            ? (float)$ofertaA['matriculados']
-            : -1;
-
-        $matB = isset($ofertaB['matriculados']) && is_numeric($ofertaB['matriculados'])
-            ? (float)$ofertaB['matriculados']
-            : -1;
-
-        // 2. Priorizar oferta con matriculados > 0 sobre matriculados = 0 o null
-        $tieneMatriculaA = $matA > 0 ? 1 : 0;
-        $tieneMatriculaB = $matB > 0 ? 1 : 0;
-
-        $cmpTieneMatricula = $tieneMatriculaB <=> $tieneMatriculaA;
-        if ($cmpTieneMatricula !== 0) {
-            return $cmpTieneMatricula;
-        }
-
-        // 3. Mayor número de matriculados (si ambos tienen > 0 o ambos tienen 0)
-        $cmpMatriculados = $matB <=> $matA;
-        if ($cmpMatriculados !== 0) {
-            return $cmpMatriculados;
-        }
-
-        // Obtener cupo, tratando null como -1
-        $cupoA = isset($ofertaA['cupo']) && is_numeric($ofertaA['cupo'])
-            ? (float)$ofertaA['cupo']
-            : -1;
-
-        $cupoB = isset($ofertaB['cupo']) && is_numeric($ofertaB['cupo'])
-            ? (float)$ofertaB['cupo']
-            : -1;
-
-        // 4. Mayor cupo
-        $cmpCupo = $cupoB <=> $cupoA;
-        if ($cmpCupo !== 0) {
-            return $cmpCupo;
-        }
-
-        // 5. Grupo ascendente (orden natural)
-        $grupoA = (string)($ofertaA['grupo'] ?? '');
-        $grupoB = (string)($ofertaB['grupo'] ?? '');
-        $cmpGrupo = strnatcasecmp($grupoA, $grupoB);
-        if ($cmpGrupo !== 0) {
-            return $cmpGrupo;
-        }
-
-        // 6. ID ascendente como último desempate técnico
-        return ((int)($ofertaA['id'] ?? PHP_INT_MAX))
-            <=> ((int)($ofertaB['id'] ?? PHP_INT_MAX));
+    usort($empatados, function ($a, $b) {
+        return $b['sim_programa'] <=> $a['sim_programa'];
     });
 
     $mejor = $empatados[0];
     $mejorOferta = $mejor['oferta'];
 
-    // Retornar todos los datos relevantes de la oferta seleccionada
     return [
-        'oferta_id' => $mejorOferta['id'],
         'codigo_materia_labor' => $filaLabor['codigo_materia'] ?? null,
         'codigo_materia_oferta' => $mejorOferta['codigo_materia'],
         'materia_labor' => $materiaLabor,
@@ -499,13 +427,7 @@ function detectarPosibleCodigoErroneo($filaLabor, array $ofertaMismoDocente, $um
         'grupo_oferta' => $mejorOferta['grupo'],
         'matriculados_oferta' => $mejorOferta['matriculados'] ?? null,
         'cupo_oferta' => $mejorOferta['cupo'] ?? null,
-        // Compatibilidad con frontend (sin guion bajo)
-        'grupooferta' => $mejorOferta['grupo'],
-        'matriculadosoferta' => $mejorOferta['matriculados'] ?? null,
-        'cupooferta' => $mejorOferta['cupo'] ?? null,
-        'programaoferta' => $mejorOferta['programa'],
-        'materiaoferta' => $mejorOferta['materia'],
-        'codigomateriaoferta' => $mejorOferta['codigo_materia'],
+        'oferta_id' => $mejorOferta['id'],
         'similitud_materia' => round($mejor['sim_materia'], 2),
         'similitud_programa' => round($mejor['sim_programa'], 2),
         'motivo' => 'Existe una oferta del mismo docente y período con un código de materia diferente '
@@ -529,6 +451,22 @@ function claveObsNormalizada($identificacion, $codigoMateria, $grupo) {
 
 /**
  * Reconciliación automática de "subsanación":
+ * - Recorre las observaciones ABIERTAS del periodo.
+ * - Para cada una, revisa si TODAS sus filas ya dejaron de tener el error
+ *   original (comparando contra $alertasActuales, que es el resultado YA
+ *   calculado por construirAuditoria() para ese mismo periodo).
+ * - Si una fila ya no aparece en $alertasActuales -> se asume subsanada
+ *   (el registro fue borrado/cambiado en el nuevo Excel SIMCA).
+ * - Si aparece pero su estado_alerta es 'OK' y no tiene alerta_labor de
+ *   duplicidad -> también se considera subsanada.
+ * - Si TODAS las filas de una observación están subsanadas, se actualiza en
+ *   BD su estado a 'SUBSANADA'.
+ *
+ * Retorna un mapa [claveNormalizada => ['id_observacion' => int, 'estado' => string]]
+ * para que el llamador pueda inyectar el badge en cada fila del dashboard.
+ */
+/**
+ * Reconciliación automática de "subsanación":
  * - Recorre las observaciones ABIERTAS del periodo y las evalúa para SUBSANAR.
  * - Recorre las observaciones SUBSANADAS del periodo y las evalúa para REABRIR
  *   si el error persiste.
@@ -547,7 +485,6 @@ function reconciliarObservaciones(PDO $pdo, string $periodo, array $alertasActua
         $indiceActual[$clave] = [
             'estado_alerta' => $row['estado_alerta'] ?? null,
             'alerta_labor'  => $row['alerta_labor'] ?? null,
-            'alerta_duplicado_exacto' => $row['alerta_duplicado_exacto'] ?? null,
         ];
     }
 
@@ -597,12 +534,10 @@ function reconciliarObservaciones(PDO $pdo, string $periodo, array $alertasActua
             } else {
                 // --- CASO GENERAL ---
                 $esOk = ($actual['estado_alerta'] ?? null) === 'OK';
-                $esCeroMatriculados = ($actual['estado_alerta'] ?? null) === 'CERO_MATRICULADOS';
                 $tieneAlertaLabor = !empty($actual['alerta_labor']);
-                $tieneDuplicadoExacto = !empty($actual['alerta_duplicado_exacto']);
-                $sigueConError = $esCeroMatriculados || !$esOk || $tieneAlertaLabor || $tieneDuplicadoExacto;
+                $sigueConError = !$esOk || $tieneAlertaLabor;
                 if ($sigueConError) {
-                    $razones[] = "Fila {$f['identificacion']}|{$f['codigo_materia']}|{$f['grupo']} aún tiene error: estado={$actual['estado_alerta']}, alerta_labor={$actual['alerta_labor']}, duplicado_exacto={$actual['alerta_duplicado_exacto']}";
+                    $razones[] = "Fila {$f['identificacion']}|{$f['codigo_materia']}|{$f['grupo']} aún tiene error: estado={$actual['estado_alerta']}, alerta_labor={$actual['alerta_labor']}";
                 } else {
                     $razones[] = "Fila {$f['identificacion']}|{$f['codigo_materia']}|{$f['grupo']} ya está OK";
                 }
@@ -658,7 +593,6 @@ function reconciliarObservaciones(PDO $pdo, string $periodo, array $alertasActua
 
     return $mapaBadge;
 }
-
 function construirAuditoria(PDO $pdo, array $filtros)
 {
     $periodo = trim((string)($filtros['periodo'] ?? ''));
@@ -774,28 +708,16 @@ function construirAuditoria(PDO $pdo, array $filtros)
             $comparacion = compararProgramas($l['programa_labor'], $o['programa']);
             $estadoAlerta = 'OK';
 
-            // Preparar datos de oferta asociada
-            $ofertaData = [
-                'oferta_id_asociada' => $o['id'],
-                'programa_oferta' => $o['programa'],
-                'materia_oferta' => $o['materia'],
-                'codigo_materia_oferta' => $o['codigo_materia'],
-                'grupo_oferta' => $o['grupo'],
-                'matriculados_oferta' => $o['matriculados'] ?? null,
-                'cupo_oferta' => $o['cupo'] ?? null,
-                // Compatibilidad frontend
-                'programaoferta' => $o['programa'],
-                'materiaoferta' => $o['materia'],
-                'codigomateriaoferta' => $o['codigo_materia'],
-                'grupooferta' => $o['grupo'],
-                'matriculadosoferta' => $o['matriculados'] ?? null,
-                'cupooferta' => $o['cupo'] ?? null,
-            ];
-
-            $alertas[] = array_merge($l, $ofertaData, [
+            $alertas[] = array_merge($l, [
                 'fuente_principal' => 'LABOR',
                 'estado_alerta' => $estadoAlerta,
                 'es_prestacion_servicio' => 0,
+
+                'programa_oferta' => $o['programa'],
+                'materia_oferta' => $o['materia'],
+                'codigo_materia_oferta' => $o['codigo_materia'],
+                'matriculados_oferta' => $o['matriculados'] ?? null,
+                'cupo_oferta' => $o['cupo'] ?? null,
 
                 'coincidencia_programa' => 'EXACTA',
                 'similitud_programa' => 1.00,
@@ -842,27 +764,16 @@ function construirAuditoria(PDO $pdo, array $filtros)
                 $o = $filasOferta[$mejorIdx];
                 $estadoAlerta = 'REVISAR_PROGRAMA_DIFERENTE';
 
-                $ofertaData = [
-                    'oferta_id_asociada' => $o['id'],
-                    'programa_oferta' => $o['programa'],
-                    'materia_oferta' => $o['materia'],
-                    'codigo_materia_oferta' => $o['codigo_materia'],
-                    'grupo_oferta' => $o['grupo'],
-                    'matriculados_oferta' => $o['matriculados'] ?? null,
-                    'cupo_oferta' => $o['cupo'] ?? null,
-                    // Compatibilidad frontend
-                    'programaoferta' => $o['programa'],
-                    'materiaoferta' => $o['materia'],
-                    'codigomateriaoferta' => $o['codigo_materia'],
-                    'grupooferta' => $o['grupo'],
-                    'matriculadosoferta' => $o['matriculados'] ?? null,
-                    'cupooferta' => $o['cupo'] ?? null,
-                ];
-
-                $alertas[] = array_merge($l, $ofertaData, [
+                $alertas[] = array_merge($l, [
                     'fuente_principal' => 'LABOR',
                     'estado_alerta' => $estadoAlerta,
                     'es_prestacion_servicio' => 0,
+
+                    'programa_oferta' => $o['programa'],
+                    'materia_oferta' => $o['materia'],
+                    'codigo_materia_oferta' => $o['codigo_materia'],
+                    'matriculados_oferta' => $o['matriculados'] ?? null,
+                    'cupo_oferta' => $o['cupo'] ?? null,
 
                     'coincidencia_programa' => $mejorComparacion['tipo'],
                     'similitud_programa' => $mejorComparacion['similitud'],
@@ -879,7 +790,6 @@ function construirAuditoria(PDO $pdo, array $filtros)
 
     // -----------------------------------------------------------------
     // PASADA 3: Diagnóstico de código diferente (detectarPosibleCodigoErroneo)
-    // CORREGIDO: ahora toma los datos de la oferta del diagnóstico y los asigna correctamente.
     // -----------------------------------------------------------------
     foreach ($laborPendiente2 as $l) {
         $claveDoc = claveDocentePeriodo($l['periodo'], $l['identificacion']);
@@ -892,83 +802,33 @@ function construirAuditoria(PDO $pdo, array $filtros)
         }
 
         $diagnosticoCodigo = detectarPosibleCodigoErroneo($l, $ofertaMismoDocenteLibre);
+        $comparacionSinOferta = compararProgramas($l['programa_labor'], null);
 
-        // Preparar datos básicos de comparación de programa
-        $coincidencia = 'NO_APLICA';
-        $similitud = null;
-        $motivoPrograma = 'Sin oferta disponible para comparar programa.';
+        $estadoFinal = $diagnosticoCodigo !== null ? 'REVISAR_CODIGO_MATERIA_DIFERENTE' : 'OFERTA_INEXISTENTE';
 
         if ($diagnosticoCodigo !== null) {
-            // Usar los datos del diagnóstico para la comparación de programa
-            $comparacionConOferta = compararProgramas($l['programa_labor'], $diagnosticoCodigo['programa_oferta']);
-            $coincidencia = $comparacionConOferta['tipo'];
-            $similitud = $comparacionConOferta['similitud'];
-            $motivoPrograma = $comparacionConOferta['motivo'];
-            
-            // Marcar la oferta como usada y preparar sus datos
-            $ofertaId = $diagnosticoCodigo['oferta_id'];
             foreach ($ofertaMismoDocenteLibre as $cand) {
-                if ((int)$cand['id'] === (int)$ofertaId) {
+                if ((int)$cand['id'] === (int)$diagnosticoCodigo['oferta_id']) {
                     $ofertaUsada[$cand['__idx']] = true;
                     break;
                 }
             }
-            
-            $estadoFinal = 'REVISAR_CODIGO_MATERIA_DIFERENTE';
-            $esPrestacion = 0;
-            
-            // Datos de la oferta desde el diagnóstico
-            $ofertaData = [
-                'oferta_id_asociada' => $diagnosticoCodigo['oferta_id'],
-                'programa_oferta' => $diagnosticoCodigo['programa_oferta'],
-                'materia_oferta' => $diagnosticoCodigo['materia_oferta'],
-                'codigo_materia_oferta' => $diagnosticoCodigo['codigo_materia_oferta'],
-                'grupo_oferta' => $diagnosticoCodigo['grupo_oferta'],
-                'matriculados_oferta' => $diagnosticoCodigo['matriculados_oferta'],
-                'cupo_oferta' => $diagnosticoCodigo['cupo_oferta'],
-                // Compatibilidad frontend
-                'programaoferta' => $diagnosticoCodigo['programaoferta'] ?? $diagnosticoCodigo['programa_oferta'],
-                'materiaoferta' => $diagnosticoCodigo['materiaoferta'] ?? $diagnosticoCodigo['materia_oferta'],
-                'codigomateriaoferta' => $diagnosticoCodigo['codigomateriaoferta'] ?? $diagnosticoCodigo['codigo_materia_oferta'],
-                'grupooferta' => $diagnosticoCodigo['grupooferta'] ?? $diagnosticoCodigo['grupo_oferta'],
-                'matriculadosoferta' => $diagnosticoCodigo['matriculadosoferta'] ?? $diagnosticoCodigo['matriculados_oferta'],
-                'cupooferta' => $diagnosticoCodigo['cupooferta'] ?? $diagnosticoCodigo['cupo_oferta'],
-            ];
-        } else {
-            // No hay diagnóstico: OFERTA_INEXISTENTE
-            $estadoFinal = 'OFERTA_INEXISTENTE';
-            $esPrestacion = 1;
-            $ofertaData = [
-                'oferta_id_asociada' => null,
-                'programa_oferta' => null,
-                'materia_oferta' => null,
-                'codigo_materia_oferta' => null,
-                'grupo_oferta' => null,
-                'matriculados_oferta' => null,
-                'cupo_oferta' => null,
-                'programaoferta' => null,
-                'materiaoferta' => null,
-                'codigomateriaoferta' => null,
-                'grupooferta' => null,
-                'matriculadosoferta' => null,
-                'cupooferta' => null,
-            ];
-            
-            // Comparación de programa sin oferta
-            $comparacionSinOferta = compararProgramas($l['programa_labor'], null);
-            $coincidencia = $comparacionSinOferta['tipo'];
-            $similitud = $comparacionSinOferta['similitud'];
-            $motivoPrograma = $comparacionSinOferta['motivo'];
         }
 
-        $alertas[] = array_merge($l, $ofertaData, [
+        $alertas[] = array_merge($l, [
             'fuente_principal' => 'LABOR',
             'estado_alerta' => $estadoFinal,
-            'es_prestacion_servicio' => $esPrestacion,
+            'es_prestacion_servicio' => $diagnosticoCodigo !== null ? 0 : 1,
 
-            'coincidencia_programa' => $coincidencia,
-            'similitud_programa' => $similitud,
-            'motivo_programa' => $motivoPrograma,
+            'programa_oferta' => $diagnosticoCodigo['programa_oferta'] ?? null,
+            'materia_oferta' => $diagnosticoCodigo['materia_oferta'] ?? null,
+            'codigo_materia_oferta' => $diagnosticoCodigo['codigo_materia_oferta'] ?? null,
+            'matriculados_oferta' => $diagnosticoCodigo['matriculados_oferta'] ?? null,
+            'cupo_oferta' => $diagnosticoCodigo['cupo_oferta'] ?? null,
+
+            'coincidencia_programa' => $comparacionSinOferta['tipo'],
+            'similitud_programa' => $comparacionSinOferta['similitud'],
+            'motivo_programa' => $comparacionSinOferta['motivo'],
             'detalle_codigo_posible_error' => $diagnosticoCodigo,
         ]);
     }
@@ -1025,41 +885,17 @@ function construirAuditoria(PDO $pdo, array $filtros)
         $mapaDuplicidad[$clave] = $d;
     }
 
-    /* -----------------------------------------------------------------
-       7. NUEVA ALERTA: LABOR_DUPLICADO_EXACTO
-       ----------------------------------------------------------------- */
-    $sqlDuplicadoExacto = "SELECT periodo, identificacion, TRIM(codigo_materia) AS codigo_materia, TRIM(grupo) AS grupo,
-                                  COUNT(*) AS cantidad_registros,
-                                  GROUP_CONCAT(DISTINCT programa ORDER BY programa SEPARATOR ' | ') AS programas,
-                                  GROUP_CONCAT(DISTINCT CONCAT(docente, ' (id ', id, ')') ORDER BY docente SEPARATOR '; ') AS registros
-                           FROM labor
-                           WHERE periodo = :periodo
-                           GROUP BY periodo, identificacion, TRIM(codigo_materia), TRIM(grupo)
-                           HAVING COUNT(*) >= 2";
-    $stmtDupExacto = $pdo->prepare($sqlDuplicadoExacto);
-    $stmtDupExacto->execute(['periodo' => $periodo]);
-    $duplicadosExacto = $stmtDupExacto->fetchAll(PDO::FETCH_ASSOC);
-
-    $mapaDuplicadoExacto = [];
-    foreach ($duplicadosExacto as $d) {
-        $clave = trim((string)$d['identificacion']) . '|' . trim((string)$d['codigo_materia']) . '|' . trim((string)$d['grupo']);
-        $mapaDuplicadoExacto[$clave] = $d;
-    }
-
     foreach ($alertas as &$row) {
         $row['alerta_labor'] = null;
         $row['detalle_alerta_labor'] = null;
-        $row['alerta_duplicado_exacto'] = null;
-        $row['detalle_alerta_duplicado'] = null;
 
         if (($row['fuente_principal'] ?? 'LABOR') !== 'LABOR') {
             continue;
         }
 
-        // Duplicidad por grupo/PE
-        $claveDup = trim((string)($row['codigo_materia'] ?? '')) . '|' . mb_strtolower(trim((string)($row['programa_labor'] ?? ''))) . '|' . trim((string)($row['grupo'] ?? ''));
-        if (isset($mapaDuplicidad[$claveDup])) {
-            $dup = $mapaDuplicidad[$claveDup];
+        $clave = trim((string)($row['codigo_materia'] ?? '')) . '|' . mb_strtolower(trim((string)($row['programa_labor'] ?? ''))) . '|' . trim((string)($row['grupo'] ?? ''));
+        if (isset($mapaDuplicidad[$clave])) {
+            $dup = $mapaDuplicidad[$clave];
             $row['alerta_labor'] = 'DUPLICIDAD_GRUPO_EXCESO_PE';
             $row['detalle_alerta_labor'] = [
                 'periodo' => $dup['periodo'],
@@ -1075,28 +911,11 @@ function construirAuditoria(PDO $pdo, array $filtros)
                 'motivo' => 'La suma de horas teóricas de este programa, materia y grupo supera el PE.',
             ];
         }
-
-        // Duplicado exacto
-        $claveExacto = trim((string)($row['identificacion'] ?? '')) . '|' . trim((string)($row['codigo_materia'] ?? '')) . '|' . trim((string)($row['grupo'] ?? ''));
-        if (isset($mapaDuplicadoExacto[$claveExacto])) {
-            $dupExacto = $mapaDuplicadoExacto[$claveExacto];
-            $row['alerta_duplicado_exacto'] = 'LABOR_DUPLICADO_EXACTO';
-            $row['detalle_alerta_duplicado'] = [
-                'periodo' => $dupExacto['periodo'],
-                'identificacion' => $dupExacto['identificacion'],
-                'codigo_materia' => $dupExacto['codigo_materia'],
-                'grupo' => $dupExacto['grupo'],
-                'cantidad_registros' => (int)$dupExacto['cantidad_registros'],
-                'programas' => $dupExacto['programas'],
-                'registros' => $dupExacto['registros'],
-                'motivo' => 'La fuente Labor repite la misma materia y grupo para este docente y período, con o sin cambio de programa.',
-            ];
-        }
     }
     unset($row);
 
     /* -----------------------------------------------------------------
-       8. Histórico por materia, independiente del docente
+       7. Histórico por materia, independiente del docente
        ----------------------------------------------------------------- */
     $mapaOrden = $pdo->query("SELECT periodo, orden_cronologico FROM periodo_catalogo")->fetchAll(PDO::FETCH_KEY_PAIR);
     $prevPeriodos = [];
@@ -1193,7 +1012,7 @@ function construirAuditoria(PDO $pdo, array $filtros)
     unset($row);
 
     /* -----------------------------------------------------------------
-       9. COBERTURA HORARIA POR MATERIA + PROGRAMA
+       8. COBERTURA HORARIA POR MATERIA + PROGRAMA
        
        CORREGIDO: SOLO se evalúa sobre filas que NO tienen oferta asignada
        (es decir, estado OFERTA_INEXISTENTE). Las filas que ya tienen una
@@ -1214,6 +1033,8 @@ function construirAuditoria(PDO $pdo, array $filtros)
     // Solo contamos filas que NO tienen oferta asignada (estado OFERTA_INEXISTENTE)
     $laborCobertura = [];
     foreach ($alertas as $row) {
+        // Solo evaluamos filas de Labor que están en estado OFERTA_INEXISTENTE
+        // (es decir, que no tienen oferta asignada)
         if (($row['fuente_principal'] ?? 'LABOR') !== 'LABOR') {
             continue;
         }
@@ -1245,10 +1066,12 @@ function construirAuditoria(PDO $pdo, array $filtros)
     }
     unset($info);
 
+    // Ahora aplicamos la cobertura solo a las filas que están en OFERTA_INEXISTENTE
     foreach ($alertas as &$row) {
         if (($row['fuente_principal'] ?? 'LABOR') !== 'LABOR') {
             continue;
         }
+        // Solo procesar filas que están en OFERTA_INEXISTENTE
         if ($row['estado_alerta'] !== 'OFERTA_INEXISTENTE') {
             continue;
         }
@@ -1269,44 +1092,6 @@ function construirAuditoria(PDO $pdo, array $filtros)
             'ofertas_necesarias' => $info['ofertas_necesarias'],
             'motivo' => 'La carga horaria acumulada de Labor para este código de materia y este programa supera la cobertura disponible en Oferta para ese mismo programa.',
         ];
-    }
-    unset($row);
-
-    /* -----------------------------------------------------------------
-       9b. NUEVO ESTADO PRINCIPAL: CERO_MATRICULADOS
-
-       Regla: una fila de fuente LABOR cuyo único estado principal sea OK,
-       pero cuya oferta asociada (real) tenga matriculados = 0, pasa a
-       CERO_MATRICULADOS. No aplica cuando ya existe un hallazgo de mayor
-       prioridad (OFERTA_INEXISTENTE, FALTA_GRUPO_EN_OFERTA,
-       REVISAR_PROGRAMA_DIFERENTE, REVISAR_CODIGO_MATERIA_DIFERENTE,
-       LABOR_INEXISTENTE) porque esos conservan su estado principal y la
-       matrícula cero se refleja como alerta complementaria / badge secundario.
-       La validación de cero es estricta y NUNCA usa $fila['matriculados']
-       ni un fallback 0 cuando no hay oferta.
-       ----------------------------------------------------------------- */
-    foreach ($alertas as &$row) {
-        if (($row['fuente_principal'] ?? 'LABOR') !== 'LABOR') {
-            continue;
-        }
-        if (($row['estado_alerta'] ?? '') !== 'OK') {
-            continue;
-        }
-        if (empty($row['oferta_id_asociada'])) {
-            continue;
-        }
-        $matriculadosCruce =
-            $row['matriculados_oferta']
-            ?? $row['matriculadosoferta']
-            ?? null;
-        $esCeroMatriculados =
-            $matriculadosCruce !== null
-            && $matriculadosCruce !== ''
-            && is_numeric($matriculadosCruce)
-            && (float)$matriculadosCruce === 0.0;
-        if ($esCeroMatriculados) {
-            $row['estado_alerta'] = 'CERO_MATRICULADOS';
-        }
     }
     unset($row);
 
@@ -1339,8 +1124,6 @@ function construirAuditoria(PDO $pdo, array $filtros)
         'duplicidad_grupo_pe' => 0,
         'labor_inexistente' => 0,
         'revisar_codigo_materia' => 0,
-        'duplicado_exacto' => 0,
-        'cero_matriculados' => 0,
     ];
 
     foreach ($alertas as $row) {
@@ -1363,18 +1146,12 @@ function construirAuditoria(PDO $pdo, array $filtros)
             case 'REVISAR_CODIGO_MATERIA_DIFERENTE':
                 $kpis['revisar_codigo_materia']++;
                 break;
-            case 'CERO_MATRICULADOS':
-                $kpis['cero_matriculados']++;
-                break;
         }
         if ((int)($row['es_prestacion_servicio'] ?? 0) === 1) {
             $kpis['prestacion_servicio']++;
         }
         if (($row['alerta_labor'] ?? null) === 'DUPLICIDAD_GRUPO_EXCESO_PE') {
             $kpis['duplicidad_grupo_pe']++;
-        }
-        if (($row['alerta_duplicado_exacto'] ?? null) === 'LABOR_DUPLICADO_EXACTO') {
-            $kpis['duplicado_exacto']++;
         }
     }
 
@@ -1440,179 +1217,200 @@ try {
             break;
 
         case 'alertas':
-            $filtros = [
-                'periodo' => trim($_GET['periodo'] ?? ''),
-                'facultad' => trim($_GET['facultad'] ?? ''),
-                'departamento' => trim($_GET['departamento'] ?? ''),
-                'programa' => trim($_GET['programa'] ?? ''),
-                'tipo_contrato' => trim($_GET['tipo_contrato'] ?? ''),
-                'estado' => trim($_GET['estado'] ?? ''),
-                'search' => trim($_GET['search'] ?? ''),
-            ];
-            if (!$filtros['periodo']) {
-                echo json_encode(['success' => false, 'error' => 'Se requiere el periodo.']);
-                exit;
-            }
-            $resultado = construirAuditoria($pdo, $filtros);
-            $alertas = $resultado['alertas'];
+    $filtros = [
+        'periodo' => trim($_GET['periodo'] ?? ''),
+        'facultad' => trim($_GET['facultad'] ?? ''),
+        'departamento' => trim($_GET['departamento'] ?? ''),
+        'programa' => trim($_GET['programa'] ?? ''),
+        'tipo_contrato' => trim($_GET['tipo_contrato'] ?? ''),
+        'estado' => trim($_GET['estado'] ?? ''),
+        'search' => trim($_GET['search'] ?? ''),
+    ];
+    if (!$filtros['periodo']) {
+        echo json_encode(['success' => false, 'error' => 'Se requiere el periodo.']);
+        exit;
+    }
+    $resultado = construirAuditoria($pdo, $filtros);
+    $alertas = $resultado['alertas'];
 
-            // --- Reconciliación automática de observaciones + badge por fila -----
-            $mapaObservaciones = reconciliarObservaciones($pdo, $filtros['periodo'], $alertas);
-            foreach ($alertas as &$rowAlerta) {
-                $rowAlerta['id_observacion_asociada'] = null;
-                $rowAlerta['estado_observacion_asociada'] = null;
-                if (empty($rowAlerta['identificacion']) || empty($rowAlerta['codigo_materia']) || empty($rowAlerta['grupo'])) {
-                    continue;
-                }
-                $claveFila = claveObsNormalizada($rowAlerta['identificacion'], $rowAlerta['codigo_materia'], $rowAlerta['grupo']);
-                if (isset($mapaObservaciones[$claveFila])) {
-                    $rowAlerta['id_observacion_asociada'] = $mapaObservaciones[$claveFila]['id_observacion'];
-                    $rowAlerta['estado_observacion_asociada'] = $mapaObservaciones[$claveFila]['estado'];
-                }
-            }
-            unset($rowAlerta);
+    // --- Reconciliación automática de observaciones + badge por fila -----
+    $mapaObservaciones = reconciliarObservaciones($pdo, $filtros['periodo'], $alertas);
+    foreach ($alertas as &$rowAlerta) {
+        $rowAlerta['id_observacion_asociada'] = null;
+        $rowAlerta['estado_observacion_asociada'] = null;
+        if (empty($rowAlerta['identificacion']) || empty($rowAlerta['codigo_materia']) || empty($rowAlerta['grupo'])) {
+            continue;
+        }
+        $claveFila = claveObsNormalizada($rowAlerta['identificacion'], $rowAlerta['codigo_materia'], $rowAlerta['grupo']);
+        if (isset($mapaObservaciones[$claveFila])) {
+            $rowAlerta['id_observacion_asociada'] = $mapaObservaciones[$claveFila]['id_observacion'];
+            $rowAlerta['estado_observacion_asociada'] = $mapaObservaciones[$claveFila]['estado'];
+        }
+    }
+    unset($rowAlerta);
 
-            echo json_encode([
-                'success' => true,
-                'kpis' => $resultado['kpis'],
-                'data' => $alertas,
-            ], JSON_UNESCAPED_UNICODE);
-            break;
+    echo json_encode([
+        'success' => true,
+        'kpis' => $resultado['kpis'],
+        'data' => $alertas,
+    ], JSON_UNESCAPED_UNICODE);
+    break;
 
-        /* ============================================================================
-           BLOQUE 2.B — NUEVO case. Guarda una observación nueva.
-           ========================================================================== */
-        case 'guardar_observacion':
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                echo json_encode(['success' => false, 'error' => 'Método no permitido. Use POST.']);
-                exit;
-            }
-            $body = json_decode(file_get_contents('php://input'), true);
-            if (!is_array($body)) {
-                echo json_encode(['success' => false, 'error' => 'JSON inválido en el cuerpo de la petición.']);
-                exit;
-            }
 
-            $periodo = trim((string)($body['periodo'] ?? ''));
-            $titulo = trim((string)($body['titulo'] ?? ''));
-            $descripcion = trim((string)($body['descripcion'] ?? ''));
-            $filas = $body['filas'] ?? [];
+/* ============================================================================
+ * BLOQUE 2.B — NUEVO case. Pégalo en cualquier parte del switch, por ejemplo
+ * justo antes del "default:" final.
+ * Guarda una observación nueva vinculando las filas seleccionadas por
+ * Clave de Negocio (periodo + identificacion + codigo_materia + grupo).
+ *
+ * Espera POST JSON:
+ * {
+ *   "periodo": "2026.2",
+ *   "titulo": "...",
+ *   "descripcion": "...",
+ *   "filas": [
+ *     { "identificacion": "123", "codigo_materia": "ABC1", "grupo": "01", "estado_alerta_original": "DUPLICIDAD_GRUPO_EXCESO_PE" },
+ *     ...
+ *   ]
+ * }
+ * ========================================================================== */
+case 'guardar_observacion':
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        echo json_encode(['success' => false, 'error' => 'Método no permitido. Use POST.']);
+        exit;
+    }
+    $body = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($body)) {
+        echo json_encode(['success' => false, 'error' => 'JSON inválido en el cuerpo de la petición.']);
+        exit;
+    }
 
-            if ($periodo === '' || $titulo === '' || !is_array($filas) || count($filas) === 0) {
-                echo json_encode(['success' => false, 'error' => 'Se requieren periodo, titulo y al menos una fila seleccionada.']);
-                exit;
-            }
+    $periodo = trim((string)($body['periodo'] ?? ''));
+    $titulo = trim((string)($body['titulo'] ?? ''));
+    $descripcion = trim((string)($body['descripcion'] ?? ''));
+    $filas = $body['filas'] ?? [];
 
-            try {
-                $pdo->beginTransaction();
+    if ($periodo === '' || $titulo === '' || !is_array($filas) || count($filas) === 0) {
+        echo json_encode(['success' => false, 'error' => 'Se requieren periodo, titulo y al menos una fila seleccionada.']);
+        exit;
+    }
 
-                $stmtObs = $pdo->prepare("INSERT INTO observaciones (periodo, titulo, descripcion, estado)
-                                           VALUES (:periodo, :titulo, :descripcion, 'ABIERTA')");
-                $stmtObs->execute([
-                    'periodo' => $periodo,
-                    'titulo' => $titulo,
-                    'descripcion' => $descripcion !== '' ? $descripcion : null,
-                ]);
-                $idObservacion = (int)$pdo->lastInsertId();
+    try {
+        $pdo->beginTransaction();
 
-                $stmtFila = $pdo->prepare("INSERT INTO observaciones_filas
-                                            (id_observacion, periodo, identificacion, codigo_materia, grupo, estado_alerta_original)
-                                            VALUES (:id_observacion, :periodo, :identificacion, :codigo_materia, :grupo, :estado_alerta_original)
-                                            ON DUPLICATE KEY UPDATE
-                                                id_observacion = VALUES(id_observacion),
-                                                estado_alerta_original = VALUES(estado_alerta_original)");
+        $stmtObs = $pdo->prepare("INSERT INTO observaciones (periodo, titulo, descripcion, estado)
+                                   VALUES (:periodo, :titulo, :descripcion, 'ABIERTA')");
+        $stmtObs->execute([
+            'periodo' => $periodo,
+            'titulo' => $titulo,
+            'descripcion' => $descripcion !== '' ? $descripcion : null,
+        ]);
+        $idObservacion = (int)$pdo->lastInsertId();
 
-                $filasInsertadas = 0;
-                foreach ($filas as $f) {
-                    $identificacion = trim((string)($f['identificacion'] ?? ''));
-                    $codigoMateria = trim((string)($f['codigo_materia'] ?? ''));
-                    $grupo = trim((string)($f['grupo'] ?? ''));
-                    $estadoOriginal = trim((string)($f['estado_alerta_original'] ?? ''));
+        $stmtFila = $pdo->prepare("INSERT INTO observaciones_filas
+                                    (id_observacion, periodo, identificacion, codigo_materia, grupo, estado_alerta_original)
+                                    VALUES (:id_observacion, :periodo, :identificacion, :codigo_materia, :grupo, :estado_alerta_original)
+                                    ON DUPLICATE KEY UPDATE
+                                        id_observacion = VALUES(id_observacion),
+                                        estado_alerta_original = VALUES(estado_alerta_original)");
 
-                    if ($identificacion === '' || $codigoMateria === '' || $grupo === '') {
-                        continue;
-                    }
+        $filasInsertadas = 0;
+        foreach ($filas as $f) {
+            $identificacion = trim((string)($f['identificacion'] ?? ''));
+            $codigoMateria = trim((string)($f['codigo_materia'] ?? ''));
+            $grupo = trim((string)($f['grupo'] ?? ''));
+            $estadoOriginal = trim((string)($f['estado_alerta_original'] ?? ''));
 
-                    $stmtFila->execute([
-                        'id_observacion' => $idObservacion,
-                        'periodo' => $periodo,
-                        'identificacion' => $identificacion,
-                        'codigo_materia' => $codigoMateria,
-                        'grupo' => $grupo,
-                        'estado_alerta_original' => $estadoOriginal !== '' ? $estadoOriginal : null,
-                    ]);
-                    $filasInsertadas++;
-                }
-
-                if ($filasInsertadas === 0) {
-                    $pdo->rollBack();
-                    echo json_encode(['success' => false, 'error' => 'Ninguna de las filas enviadas tenía datos válidos (identificación/código/grupo).']);
-                    exit;
-                }
-
-                $pdo->commit();
-                echo json_encode([
-                    'success' => true,
-                    'id_observacion' => $idObservacion,
-                    'filas_guardadas' => $filasInsertadas,
-                ]);
-            } catch (Exception $e) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
-                echo json_encode(['success' => false, 'error' => 'Error al guardar la observación: ' . $e->getMessage()]);
-            }
-            break;
-
-        /* ============================================================================
-           BLOQUE 2.C — NUEVO case. Devuelve el detalle completo de una observación.
-           ========================================================================== */
-        case 'obtener_observacion':
-            $idObservacion = (int)($_GET['id'] ?? 0);
-            if ($idObservacion <= 0) {
-                echo json_encode(['success' => false, 'error' => 'Se requiere el id de la observación.']);
-                exit;
+            if ($identificacion === '' || $codigoMateria === '' || $grupo === '') {
+                continue; // fila incompleta, se omite (p.ej. filas 'oferta_xxx' sin identificación real)
             }
 
-            $stmtObs = $pdo->prepare("SELECT * FROM observaciones WHERE id = :id");
-            $stmtObs->execute(['id' => $idObservacion]);
-            $observacion = $stmtObs->fetch(PDO::FETCH_ASSOC);
+            $stmtFila->execute([
+                'id_observacion' => $idObservacion,
+                'periodo' => $periodo,
+                'identificacion' => $identificacion,
+                'codigo_materia' => $codigoMateria,
+                'grupo' => $grupo,
+                'estado_alerta_original' => $estadoOriginal !== '' ? $estadoOriginal : null,
+            ]);
+            $filasInsertadas++;
+        }
 
-            if (!$observacion) {
-                echo json_encode(['success' => false, 'error' => 'Observación no encontrada.']);
-                exit;
-            }
+        if ($filasInsertadas === 0) {
+            $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Ninguna de las filas enviadas tenía datos válidos (identificación/código/grupo).']);
+            exit;
+        }
 
-            $stmtFilas = $pdo->prepare("SELECT * FROM observaciones_filas WHERE id_observacion = :id ORDER BY id");
-            $stmtFilas->execute(['id' => $idObservacion]);
-            $filas = $stmtFilas->fetchAll(PDO::FETCH_ASSOC);
+        $pdo->commit();
+        echo json_encode([
+            'success' => true,
+            'id_observacion' => $idObservacion,
+            'filas_guardadas' => $filasInsertadas,
+        ]);
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        echo json_encode(['success' => false, 'error' => 'Error al guardar la observación: ' . $e->getMessage()]);
+    }
+    break;
 
-            echo json_encode([
-                'success' => true,
-                'observacion' => $observacion,
-                'filas' => $filas,
-            ], JSON_UNESCAPED_UNICODE);
-            break;
 
-        /* ============================================================================
-           BLOQUE 2.D — NUEVO case. Lista las observaciones de un periodo.
-           ========================================================================== */
-        case 'listar_observaciones':
-            $periodo = trim($_GET['periodo'] ?? '');
-            if (!$periodo) {
-                echo json_encode(['success' => false, 'error' => 'Se requiere el periodo.']);
-                exit;
-            }
-            $stmt = $pdo->prepare("SELECT o.*, COUNT(f.id) AS total_filas
-                                    FROM observaciones o
-                                    LEFT JOIN observaciones_filas f ON f.id_observacion = o.id
-                                    WHERE o.periodo = :periodo
-                                    GROUP BY o.id
-                                    ORDER BY o.fecha_creacion DESC");
-            $stmt->execute(['periodo' => $periodo]);
-            echo json_encode(['success' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
-            break;
+/* ============================================================================
+ * BLOQUE 2.C — NUEVO case. Devuelve el detalle completo de una observación
+ * (encabezado + filas) para pintar el modal de detalle al hacer clic en el
+ * badge de la tabla.
+ * ========================================================================== */
+case 'obtener_observacion':
+    $idObservacion = (int)($_GET['id'] ?? 0);
+    if ($idObservacion <= 0) {
+        echo json_encode(['success' => false, 'error' => 'Se requiere el id de la observación.']);
+        exit;
+    }
 
+    $stmtObs = $pdo->prepare("SELECT * FROM observaciones WHERE id = :id");
+    $stmtObs->execute(['id' => $idObservacion]);
+    $observacion = $stmtObs->fetch(PDO::FETCH_ASSOC);
+
+    if (!$observacion) {
+        echo json_encode(['success' => false, 'error' => 'Observación no encontrada.']);
+        exit;
+    }
+
+    $stmtFilas = $pdo->prepare("SELECT * FROM observaciones_filas WHERE id_observacion = :id ORDER BY id");
+    $stmtFilas->execute(['id' => $idObservacion]);
+    $filas = $stmtFilas->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        'success' => true,
+        'observacion' => $observacion,
+        'filas' => $filas,
+    ], JSON_UNESCAPED_UNICODE);
+    break;
+
+
+/* ============================================================================
+ * BLOQUE 2.D — NUEVO case. Lista las observaciones de un periodo (para
+ * mostrar, si algún día quieres, un panel independiente con todas ellas).
+ * No es estrictamente indispensable para el flujo pedido, pero es barato y
+ * útil como apoyo administrativo.
+ * ========================================================================== */
+case 'listar_observaciones':
+    $periodo = trim($_GET['periodo'] ?? '');
+    if (!$periodo) {
+        echo json_encode(['success' => false, 'error' => 'Se requiere el periodo.']);
+        exit;
+    }
+    $stmt = $pdo->prepare("SELECT o.*, COUNT(f.id) AS total_filas
+                            FROM observaciones o
+                            LEFT JOIN observaciones_filas f ON f.id_observacion = o.id
+                            WHERE o.periodo = :periodo
+                            GROUP BY o.id
+                            ORDER BY o.fecha_creacion DESC");
+    $stmt->execute(['periodo' => $periodo]);
+    echo json_encode(['success' => true, 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)], JSON_UNESCAPED_UNICODE);
+    break;
         /* =====================================================================
            3. RADIOGRAFÍA / BÚSQUEDA INDIVIDUAL DE DOCENTE
            ===================================================================== */
@@ -1765,7 +1563,7 @@ try {
                         $estado = $comparacion['tipo'] === 'EXACTA' ? 'OK' : 'REVISAR_PROGRAMA_DIFERENTE';
                         if ($estado === 'OK') $resumen['ok']++; else $resumen['programa_diferente']++;
                         $cruces[] = [
-                            'labor' => $l,
+                            'labor' => $l,  // $l tiene las claves originales 'programa' y 'materia'
                             'oferta' => $o,
                             'estado' => $estado,
                             'coincidencia_programa' => $comparacion['tipo'],
@@ -1787,6 +1585,7 @@ try {
                         $ofertaLibreTotal[] = ['__idx' => $idx] + $o;
                     }
                 }
+                // Para detectarPosibleCodigoErroneo necesitamos un arreglo con claves 'programa_labor' y 'materia_labor'
                 $filaLaborTmp = [
                     'codigo_materia' => $l['codigo_materia'],
                     'programa_labor' => $l['programa'],
@@ -1811,7 +1610,7 @@ try {
                     $o = null;
                 }
                 $cruces[] = [
-                    'labor' => $l,
+                    'labor' => $l,  // $l con claves originales
                     'oferta' => $o,
                     'estado' => $estado,
                     'coincidencia_programa' => $comparacion['tipo'] ?? 'NO_APLICA',
@@ -2058,7 +1857,6 @@ try {
                 'FALTA_GRUPO_EN_OFERTA' => ['GRUPO SIN OFERTA', 'fed7aa', 'c2410c'],
                 'LABOR_INEXISTENTE' => ['NO EXISTE EN LABOR', 'fce7f3', 'be185d'],
                 'REVISAR_CODIGO_MATERIA_DIFERENTE' => ['REVISAR CÓDIGO MATERIA', 'e0e7ff', '4338ca'],
-                'CERO_MATRICULADOS' => ['CERO MATRICULADOS', 'ffedd5', 'c2410c'],
             ];
             $HIST_META = [
                 'SALTO_FUERTE' => ['SALTO FUERTE', 'fee2e2', 'b91c1c'],
@@ -2200,7 +1998,7 @@ try {
                 };
 
                 $peValor = $r['pe'] ?? '';
-                $esPECero = $peValor !== '' && is_numeric($peValor) && (float)$peValor === 0.0;
+                $esPECero = $peValor !== '' && is_numeric($peValor) && (float)$peValor === 0;
                 $stylePE = $esPECero ? 'background:#fce4ec;color:#c62828;font-weight:bold;' : 'text-align:center;';
 
                 echo '<tr>';
@@ -2268,11 +2066,7 @@ try {
 
             echo '</table></body></html>';
             exit;
-
-           /* =====================================================================
-   8. EXPORTAR OBSERVACIÓN A WORD (con todos los tipos de alerta)
-   ===================================================================== */
-case 'exportar_observacion_word':
+            case 'exportar_observacion_word':
     $idObservacion = (int)($_GET['id'] ?? 0);
     if ($idObservacion <= 0) {
         echo json_encode(['success' => false, 'error' => 'Se requiere el id de la observación.']);
@@ -2293,7 +2087,9 @@ case 'exportar_observacion_word':
 
     $periodoObs = $observacion['periodo'];
 
-    // Recalcular auditoría actual
+    // Recalculamos la auditoría COMPLETA y actual de ese periodo (sin filtros)
+    // para tener los datos vigentes (docente, programa, materia, horas, PE,
+    // matriculados, cupo, código/materia de oferta, etc.) de cada fila.
     $resultadoActual = construirAuditoria($pdo, ['periodo' => $periodoObs]);
     $indiceActual = [];
     foreach ($resultadoActual['alertas'] as $row) {
@@ -2303,182 +2099,126 @@ case 'exportar_observacion_word':
         $indiceActual[claveObsNormalizada($row['identificacion'], $row['codigo_materia'], $row['grupo'])] = $row;
     }
 
-    // Tablas
-    $tabla1 = []; // Plan de estudios superado (SOLO duplicidad-PE)
-    $tablaProgramaDiferente = []; // Programa similar o diferente
-    $tabla2 = []; // Diferencia en códigos
-    $tabla3 = []; // Oferta inexistente (incluye subtipos: SIN_OFERTA y FALTA_GRUPO)
-    $tabla4 = []; // Solo en Oferta
-    $tablaDuplicados = []; // Registros duplicados en Labor
-    $tablaSinMatriculados = []; // Grupos sin matriculados
 
-    $gruposDuplicidadProcesados = [];
-    $gruposDuplicadosExactoProcesados = [];
+$tabla1 = []; // DUPLICIDAD_GRUPO_EXCESO_PE + FALTA_GRUPO_EN_OFERTA
+$tabla2 = []; // REVISAR_CODIGO_MATERIA_DIFERENTE
+$tabla3 = []; // OFERTA_INEXISTENTE
+$tabla4 = []; // LABOR_INEXISTENTE
+$gruposDuplicidadProcesados = [];
 
-    foreach ($filasObs as $f) {
-        $clave = claveObsNormalizada($f['identificacion'], $f['codigo_materia'], $f['grupo']);
-        $rowActual = $indiceActual[$clave] ?? null;
-        if (!$rowActual) {
-            continue;
-        }
+foreach ($filasObs as $f) {
+    $clave = claveObsNormalizada($f['identificacion'], $f['codigo_materia'], $f['grupo']);
+    $rowActual = $indiceActual[$clave] ?? null;
 
-        $estadoActual = $rowActual['estado_alerta'] ?? null;
-        $esDuplicidad = ($rowActual['alerta_labor'] ?? null) === 'DUPLICIDAD_GRUPO_EXCESO_PE';
-        $tieneDuplicadoExacto = !empty($rowActual['alerta_duplicado_exacto']);
+    if (!$rowActual) {
+        // La fila ya no existe en el periodo vigente (fue borrada del
+        // Excel más reciente). No hay datos frescos que reportar; se
+        // omite de las tablas del Word (la reconciliación ya la habrá
+        // marcado como subsanada en el badge del dashboard).
+        continue;
+    }
 
-        // Obtener matriculados de la oferta asociada
-        $matriculadosOferta = $rowActual['matriculados_oferta'] ?? $rowActual['matriculadosoferta'] ?? null;
+    $estadoActual = $rowActual['estado_alerta'] ?? null;
+    $esDuplicidad = ($rowActual['alerta_labor'] ?? null) === 'DUPLICIDAD_GRUPO_EXCESO_PE';
 
-        // --- NUEVA TABLA: Grupos sin matriculados ---
-        if ($estadoActual !== 'OFERTA_INEXISTENTE' && $estadoActual !== 'LABOR_INEXISTENTE' && $matriculadosOferta !== null && (float)$matriculadosOferta === 0.0) {
-            $tablaSinMatriculados[] = [
-                'docente' => $rowActual['docente'] ?? null,
-                'programa_oferta' => $rowActual['programa_oferta'] ?? null,
-                'materia_labor' => $rowActual['materia_labor'] ?? null,
-                'materia_oferta' => $rowActual['materia_oferta'] ?? null,
-                'codigo_materia_labor' => $rowActual['codigo_materia'] ?? null,
-                'codigo_materia_oferta' => $rowActual['codigo_materia_oferta'] ?? null,
-                'grupo_oferta' => $rowActual['grupo_oferta'] ?? null,
-                'matriculados' => $matriculadosOferta,
-                'cupo' => $rowActual['cupo_oferta'] ?? $rowActual['cupooferta'] ?? null,
-            ];
-        }
+    // ---------------------------------------------------------------
+    // TABLA 1.A — Duplicidad de grupo (expande TODOS los docentes del
+    // mismo grupo/materia/programa, no solo el que se seleccionó).
+    // ---------------------------------------------------------------
+    if ($esDuplicidad) {
+        $codigoNorm = trim((string)$f['codigo_materia']);
+        $grupoNorm = trim((string)$f['grupo']);
+        $programaRow = $rowActual['programa_labor'] ?? null;
+        $grupoKey = $periodoObs . '|' . $codigoNorm . '|' . mb_strtolower((string)$programaRow) . '|' . $grupoNorm;
 
-        // --- Tabla 1: Plan de estudios superado (SOLO DUPLICIDAD_PE) ---
-        // CORREGIDO: FALTA_GRUPO_EN_OFERTA ya NO va aquí
-        if ($esDuplicidad) {
-            $codigoNorm = trim((string)$f['codigo_materia']);
-            $grupoNorm = trim((string)$f['grupo']);
-            $programaRow = $rowActual['programa_labor'] ?? null;
-            $grupoKey = $periodoObs . '|' . $codigoNorm . '|' . mb_strtolower((string)$programaRow) . '|' . $grupoNorm;
-            if (!isset($gruposDuplicidadProcesados[$grupoKey])) {
-                $gruposDuplicidadProcesados[$grupoKey] = true;
-                $stmtDup = $pdo->prepare("SELECT facultad, departamento, docente, programa, materia,
+        if (!isset($gruposDuplicidadProcesados[$grupoKey])) {
+            $gruposDuplicidadProcesados[$grupoKey] = true;
+
+            $stmtDup = $pdo->prepare("SELECT facultad, departamento, docente, programa, materia,
                                               codigo_materia, grupo, horas_teoricas, pe
                                        FROM labor
                                        WHERE periodo = :periodo
                                          AND TRIM(codigo_materia) = :codigo
                                          AND TRIM(grupo) = :grupo
                                          AND TRIM(LOWER(programa)) = TRIM(LOWER(:programa))");
-                $stmtDup->execute([
-                    'periodo' => $periodoObs,
-                    'codigo' => $codigoNorm,
-                    'grupo' => $grupoNorm,
-                    'programa' => $programaRow ?? '',
-                ]);
-                foreach ($stmtDup->fetchAll(PDO::FETCH_ASSOC) as $d) {
-                    $tabla1[] = $d;
-                }
-            }
-        }
-
-        // --- Tabla 3: Oferta inexistente (AGRUPADA con subtipo) ---
-        // Incluye OFERTA_INEXISTENTE y FALTA_GRUPO_EN_OFERTA
-        if ($estadoActual === 'OFERTA_INEXISTENTE' || $estadoActual === 'FALTA_GRUPO_EN_OFERTA') {
-            $subtipo = ($estadoActual === 'FALTA_GRUPO_EN_OFERTA') ? 'FALTA_GRUPO' : 'SIN_OFERTA';
-            $tabla3[] = [
-                'subtipo' => $subtipo,
-                'departamento' => $rowActual['departamento_labor'] ?? null,
-                'docente' => $rowActual['docente'] ?? null,
-                'programa' => $rowActual['programa_labor'] ?? null,
-                'materia' => $rowActual['materia_labor'] ?? null,
-                'codigo_materia' => $rowActual['codigo_materia'] ?? null,
-                'grupo' => $rowActual['grupo'] ?? null,
-                'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
-                'pe' => $rowActual['pe'] ?? null,
-                // Para FALTA_GRUPO, agregamos información adicional de cobertura
-                'detalle_cobertura' => $rowActual['detalle_cobertura'] ?? null,
-            ];
-        }
-
-        // --- Tabla: Diferencia de programa ---
-        $debeIrPrograma = false;
-        if ($estadoActual === 'REVISAR_PROGRAMA_DIFERENTE') {
-            $debeIrPrograma = true;
-        } elseif ($estadoActual === 'REVISAR_CODIGO_MATERIA_DIFERENTE' && in_array($rowActual['coincidencia_programa'], ['ALTA', 'MEDIA', 'BAJA'])) {
-            $debeIrPrograma = true;
-        }
-
-        if ($debeIrPrograma) {
-            $clavePrograma = $clave;
-            $existe = false;
-            foreach ($tablaProgramaDiferente as $existing) {
-                if (($existing['_clave'] ?? '') === $clavePrograma) {
-                    $existe = true;
-                    break;
-                }
-            }
-            if (!$existe) {
-                $tablaProgramaDiferente[] = [
-                    '_clave' => $clavePrograma,
-                    'docente' => $rowActual['docente'] ?? null,
-                    'programa_labor' => $rowActual['programa_labor'] ?? null,
-                    'programa_oferta' => $rowActual['programa_oferta'] ?? null,
-                    'materia' => $rowActual['materia_labor'] ?? null,
-                    'codigo' => $rowActual['codigo_materia'] ?? null,
-                    'grupo' => $rowActual['grupo'] ?? null,
-                ];
-            }
-        }
-
-        // --- Tabla 2: Diferencia en códigos ---
-        if ($estadoActual === 'REVISAR_CODIGO_MATERIA_DIFERENTE') {
-            $dc = $rowActual['detalle_codigo_posible_error'] ?? null;
-            $tabla2[] = [
-                'docente' => $rowActual['docente'] ?? null,
-                'programa_labor' => $rowActual['programa_labor'] ?? null,
-                'programa_oferta' => $dc['programa_oferta'] ?? ($rowActual['programa_oferta'] ?? null),
-                'similitud_programa' => $rowActual['similitud_programa'] ?? null,
-                'materia_labor' => $rowActual['materia_labor'] ?? null,
-                'codigo_materia_labor' => $rowActual['codigo_materia'] ?? null,
-                'grupo' => $rowActual['grupo'] ?? null,
-                'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
-                'codigo_materia_oferta' => $dc['codigo_materia_oferta'] ?? ($rowActual['codigo_materia_oferta'] ?? null),
-                'materia_oferta' => $dc['materia_oferta'] ?? ($rowActual['materia_oferta'] ?? null),
-            ];
-        }
-
-        // --- Tabla 4: Solo en Oferta ---
-        if ($estadoActual === 'LABOR_INEXISTENTE') {
-            $tabla4[] = [
-                'docente' => $rowActual['docente'] ?? null,
-                'programa' => $rowActual['programa_oferta'] ?? null,
-                'materia' => $rowActual['materia_oferta'] ?? null,
-                'codigo_materia' => $rowActual['codigo_materia'] ?? null,
-                'grupo' => $rowActual['grupo'] ?? null,
-                'matriculados' => $rowActual['matriculados'] ?? null,
-                'cupo' => $rowActual['cupo'] ?? null,
-            ];
-        }
-
-        // --- Tabla 5: Registros duplicados en Labor ---
-        if ($tieneDuplicadoExacto) {
-            $codigoNorm = trim((string)$f['codigo_materia']);
-            $grupoNorm = trim((string)$f['grupo']);
-            $identificacionNorm = trim((string)$f['identificacion']);
-            $grupoKey = $periodoObs . '|' . $identificacionNorm . '|' . $codigoNorm . '|' . $grupoNorm;
-            if (!isset($gruposDuplicadosExactoProcesados[$grupoKey])) {
-                $gruposDuplicadosExactoProcesados[$grupoKey] = true;
-                $stmtDupExacto = $pdo->prepare("SELECT docente, programa, materia, codigo_materia, grupo, horas_teoricas, pe, id
-                                                FROM labor
-                                                WHERE periodo = :periodo
-                                                  AND identificacion = :identificacion
-                                                  AND TRIM(codigo_materia) = :codigo
-                                                  AND TRIM(grupo) = :grupo");
-                $stmtDupExacto->execute([
-                    'periodo' => $periodoObs,
-                    'identificacion' => $identificacionNorm,
-                    'codigo' => $codigoNorm,
-                    'grupo' => $grupoNorm,
-                ]);
-                foreach ($stmtDupExacto->fetchAll(PDO::FETCH_ASSOC) as $d) {
-                    $tablaDuplicados[] = $d;
-                }
+            $stmtDup->execute([
+                'periodo' => $periodoObs,
+                'codigo' => $codigoNorm,
+                'grupo' => $grupoNorm,
+                'programa' => $programaRow ?? '',
+            ]);
+            foreach ($stmtDup->fetchAll(PDO::FETCH_ASSOC) as $d) {
+                $tabla1[] = $d;
             }
         }
     }
 
-    // --- Generación del documento Word ---
+    // ---------------------------------------------------------------
+    // TABLA 1.B — Falta grupo en oferta (fila única, sin expandir).
+    // ---------------------------------------------------------------
+    if ($estadoActual === 'FALTA_GRUPO_EN_OFERTA') {
+        $tabla1[] = [
+            'departamento' => $rowActual['departamento_labor'] ?? null,
+            'docente' => $rowActual['docente'] ?? null,
+            'programa' => $rowActual['programa_labor'] ?? null,
+            'materia' => $rowActual['materia_labor'] ?? null,
+            'codigo_materia' => $rowActual['codigo_materia'] ?? null,
+            'grupo' => $rowActual['grupo'] ?? null,
+            'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
+            'pe' => $rowActual['pe'] ?? null,
+        ];
+    }
+
+    // ---------------------------------------------------------------
+    // TABLA 2 — Revisar código de materia diferente.
+    // ---------------------------------------------------------------
+    if ($estadoActual === 'REVISAR_CODIGO_MATERIA_DIFERENTE') {
+        $dc = $rowActual['detalle_codigo_posible_error'] ?? null;
+        $tabla2[] = [
+            'docente' => $rowActual['docente'] ?? null,
+            'programa' => $rowActual['programa_labor'] ?? null,
+            'materia_labor' => $rowActual['materia_labor'] ?? null,
+            'codigo_materia_labor' => $rowActual['codigo_materia'] ?? null,
+            'grupo' => $rowActual['grupo'] ?? null,
+            'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
+            'codigo_materia_oferta' => $dc['codigo_materia_oferta'] ?? ($rowActual['codigo_materia_oferta'] ?? null),
+            'materia_oferta' => $dc['materia_oferta'] ?? ($rowActual['materia_oferta'] ?? null),
+        ];
+    }
+
+    // ---------------------------------------------------------------
+    // TABLA 3 — Oferta inexistente. OJO: este "if" es independiente
+    // del de arriba, por eso una fila con duplicidad Y oferta
+    // inexistente ahora cae en AMBAS tablas.
+    // ---------------------------------------------------------------
+    if ($estadoActual === 'OFERTA_INEXISTENTE') {
+        $tabla3[] = [
+            'docente' => $rowActual['docente'] ?? null,
+            'programa' => $rowActual['programa_labor'] ?? null,
+            'materia' => $rowActual['materia_labor'] ?? null,
+            'codigo_materia' => $rowActual['codigo_materia'] ?? null,
+            'grupo' => $rowActual['grupo'] ?? null,
+            'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
+            'pe' => $rowActual['pe'] ?? null,
+        ];
+    }
+
+    // ---------------------------------------------------------------
+    // TABLA 4 — Solo existe en Oferta (sin Labor).
+    // ---------------------------------------------------------------
+    if ($estadoActual === 'LABOR_INEXISTENTE') {
+        $tabla4[] = [
+            'docente' => $rowActual['docente'] ?? null,
+            'programa' => $rowActual['programa_oferta'] ?? null,
+            'materia' => $rowActual['materia_oferta'] ?? null,
+            'codigo_materia' => $rowActual['codigo_materia'] ?? null,
+            'grupo' => $rowActual['grupo'] ?? null,
+            'matriculados' => $rowActual['matriculados'] ?? null,
+            'cupo' => $rowActual['cupo'] ?? null,
+        ];
+    }
+}
+
     $nombreArchivo = 'observacion_' . $idObservacion . '_' .
         preg_replace('/[^A-Za-z0-9_\-]/', '_', $periodoObs) . '.doc';
 
@@ -2486,143 +2226,33 @@ case 'exportar_observacion_word':
     header('Content-Disposition: attachment; filename="' . $nombreArchivo . '"');
     header('Cache-Control: max-age=0');
 
-    // Estilo para PE=0 y Matriculados=0
-    $stylePECero = 'background:#fce4ec;color:#c62828;font-weight:bold;';
-    $styleMatriculadosCero = 'background:#fce4ec;color:#c62828;font-weight:bold;';
-
-    echo "\xEF\xBB\xBF";
-    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" 
-                xmlns:w="urn:schemas-microsoft-com:office:word" 
-                xmlns="http://www.w3.org/TR/REC-html40">
-          <head>
-            <meta charset="UTF-8">
-            <!--[if gte mso 9]>
-            <xml>
-              <w:WordDocument>
-                <w:View>Print</w:View>
-                <w:Zoom>100</w:Zoom>
-              </w:WordDocument>
-            </xml>
-            <![endif]-->
-            <style>
-                /* PÁGINA EN HORIZONTAL (LANDSCAPE) CON MÁRGENES ESTRECHOS */
-                @page {
-                    size: 11in 8.5in;
-                    margin: 0.5in 0.5in 0.5in 0.5in
-                    mso-page-orientation: landscape;
-                }
-                @page Section1 {
-                    size: 11in 8.5in;
-                    mso-page-orientation: landscape;
-                    mso-header-margin: 0.3in;
-                    mso-footer-margin: 0.3in;
-                    mso-page-margin: 0.5in 0.5in 0.5in 0.5in;
-                }
-                div.Section1 { page: Section1; }
-
-                body {
-                        font-family: Arial, sans-serif;
-                        font-size: 10pt;
-                        margin: 0;
-                    }
-                h2 {
-                    color: #1e3a8a;
-                    font-size: 14pt;
-                    border-bottom: 2px solid #1e3a8a;
-                    padding-bottom: 4px;
-                    margin-bottom: 8px;
-                }
-                h3 {
-                    color: #1e3a8a;
-                    font-size: 11pt;
-                    margin-top: 14px;
-                    margin-bottom: 6px;
-                }
-                table {
-                    border-collapse: collapse;
-                    width: auto;
-                    max-width: 100%;
-                    table-layout: auto;
-                    margin: 0 auto 8px auto;
-                    font-size: 8pt;
-                }
-                th {
-                    padding: 2px 3px;
-                    border: 1px solid #999;
-                    text-align: left;
-                    font-size: 8pt;
-                    font-weight: bold;
-                    white-space: nowrap;
-                }
-                td {
-                    padding: 1px 3px;
-                    border: 1px solid #999;
-                    font-size: 8pt;
-                    word-wrap: break-word;
-                    overflow-wrap: anywhere;
-                }
-                .subtipo-falta-grupo {
-                    background: #ffedd5;
-                    font-weight: bold;
-                    color: #9a3412;
-                    padding: 1px 4px;
-                    border-radius: 3px;
-                    font-size: 7pt;
-                    display: inline-block;
-                }
-                .subtipo-sin-oferta {
-                    background: #fee2e2;
-                    font-weight: bold;
-                    color: #991b1b;
-                    padding: 1px 4px;
-                    border-radius: 3px;
-                    font-size: 7pt;
-                    display: inline-block;
-                }
-            </style>
-          </head>
-          <body>
-            <div class="Section1">';
-
     $celda = function ($v) {
-        return '<td style="border:1px solid #999;padding:1px 3px;font-size:8pt;">'
+        return '<td style="border:1px solid #999;padding:5px;font-size:11px;">'
              . htmlspecialchars((string)($v ?? '—')) . '</td>';
     };
     $thEstilo = function ($color) {
-        return 'border:1px solid #999;padding:2px 3px;background:' . $color . ';color:#fff;font-size:8pt;font-weight:bold;white-space:nowrap;';
+        return 'border:1px solid #999;padding:6px;background:' . $color . ';color:#fff;font-size:11px;';
     };
 
-    // Función auxiliar para pintar PE con estilo si es 0
-    $celdaPE = function($pe) use ($stylePECero) {
-        $peValor = $pe ?? '';
-        $esCero = $peValor !== '' && is_numeric($peValor) && (float)$peValor === 0.0;
-        $style = $esCero ? $stylePECero : '';
-        return '<td style="border:1px solid #999;padding:1px 3px;font-size:8pt;' . $style . '">'
-             . htmlspecialchars((string)($peValor !== '' ? $peValor : '—')) . '</td>';
-    };
-
-    $celdaMatriculados = function($mat) use ($styleMatriculadosCero) {
-        $matValor = $mat ?? '';
-        $esCero = $matValor !== '' && is_numeric($matValor) && (float)$matValor === 0.0;
-        $style = $esCero ? $styleMatriculadosCero . ';' : '';
-        $nota = $esCero ? ' ⚠ Sin matrícula' : '';
-        return '<td style="border:1px solid #999;padding:1px 3px;font-size:8pt;' . $style . '">'
-             . htmlspecialchars((string)($matValor !== '' ? $matValor : '—')) . $nota . '</td>';
-    };
+    echo "\xEF\xBB\xBF";
+    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+       . 'xmlns:w="urn:schemas-microsoft-com:office:word" '
+       . 'xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"></head>'
+       . '<body style="font-family:Arial;font-size:12px;">';
 
     echo '<h2>' . htmlspecialchars($observacion['titulo']) . '</h2>';
-    echo '<p style="font-size:9pt;"><b>Periodo:</b> ' . htmlspecialchars($periodoObs)
+    echo '<p><b>Periodo:</b> ' . htmlspecialchars($periodoObs)
        . ' &nbsp; <b>Estado:</b> ' . htmlspecialchars($observacion['estado'])
        . ' &nbsp; <b>Generado:</b> ' . date('Y-m-d H:i') . '</p>';
     if (!empty($observacion['descripcion'])) {
-        echo '<p style="font-size:9pt;">' . nl2br(htmlspecialchars($observacion['descripcion'])) . '</p>';
+        echo '<p>' . nl2br(htmlspecialchars($observacion['descripcion'])) . '</p>';
     }
 
-    // 1. Plan de estudios superado (SOLO duplicidad-PE)
     if (!empty($tabla1)) {
         echo '<h3>&#9888;&#65039; Plan de estudios superado</h3>';
-        echo '<p style="font-size:8.5pt;">A continuación, se enuncian los cursos a los cuales se les ha asignado más horas '
-           . 'de las estipuladas por el plan de estudios (la suma de horas teóricas supera el PE).</p>';
+        echo '<p>A continuación, se enuncian los cursos a los cuales se les ha asignado más horas '
+           . 'de las estipuladas por el plan de estudios, o para los cuales la oferta disponible '
+           . 'resulta insuficiente frente a la carga registrada en Labor.</p>';
         echo '<table style="border-collapse:collapse;width:100%;"><tr>'
            . '<th style="' . $thEstilo('#1e3a8a') . '">DEPARTAMENTO</th>'
            . '<th style="' . $thEstilo('#1e3a8a') . '">APELLIDOS NOMBRES</th>'
@@ -2636,42 +2266,37 @@ case 'exportar_observacion_word':
             echo '<tr>' . $celda($r['departamento'] ?? null) . $celda($r['docente'] ?? null)
                . $celda($r['programa'] ?? null) . $celda($r['materia'] ?? null)
                . $celda($r['codigo_materia'] ?? null) . $celda($r['grupo'] ?? null)
-               . $celda($r['horas_teoricas'] ?? null) . $celdaPE($r['pe'] ?? null) . '</tr>';
+               . $celda($r['horas_teoricas'] ?? null) . $celda($r['pe'] ?? null) . '</tr>';
         }
         echo '</table><br>';
     }
 
-    // 2. Oferta inexistente (AGRUPADA con subtipos)
-    if (!empty($tabla3)) {
-        // Contar cuántos de cada subtipo hay
-        $totalSinOferta = 0;
-        $totalFaltaGrupo = 0;
-        foreach ($tabla3 as $r) {
-            if ($r['subtipo'] === 'SIN_OFERTA') {
-                $totalSinOferta++;
-            } else {
-                $totalFaltaGrupo++;
-            }
-        }
-
-        $tituloTabla = '&#128683; Oferta inexistente o insuficiente';
-        $descripcion = 'Estos registros existen en Labor pero NO tienen correspondencia en Oferta. ';
-        if ($totalSinOferta > 0 && $totalFaltaGrupo > 0) {
-            $descripcion .= 'Se distinguen dos casos: ';
-            $descripcion .= '<span class="subtipo-sin-oferta">SIN OFERTA</span> (la materia no existe en Oferta) y ';
-            $descripcion .= '<span class="subtipo-falta-grupo">FALTA GRUPO</span> (la materia existe pero no hay suficientes grupos).';
-        } elseif ($totalSinOferta > 0) {
-            $descripcion .= 'La materia no existe en el sistema de Oferta para este periodo.';
-        } else {
-            $descripcion .= 'La materia existe en Oferta pero no hay suficientes grupos disponibles para cubrir la demanda.';
-        }
-
-        echo '<h3>' . $tituloTabla . '</h3>';
-        echo '<p style="font-size:8.5pt;">' . $descripcion . '</p>';
-
+    if (!empty($tabla2)) {
+        echo '<h3>&#128269; Diferencia en códigos de labor y oferta</h3>';
+        echo '<p>Se detectaron asignaturas con diferencia en los códigos de materia entre lo '
+           . 'reportado en Labor y lo registrado en Oferta.</p>';
         echo '<table style="border-collapse:collapse;width:100%;"><tr>'
-           . '<th style="' . $thEstilo('#b91c1c') . '">TIPO</th>'
-           . '<th style="' . $thEstilo('#b91c1c') . '">DEPARTAMENTO</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">APELLIDOS NOMBRES</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">PROGRAMA</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">NOMBRE MATERIA LABOR</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">CÓDIGO MATERIA LABOR</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">GRUPO</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">HORAS TEÓRICAS</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">CÓDIGO MATERIA OFERTA</th>'
+           . '<th style="' . $thEstilo('#4338ca') . '">NOMBRE MATERIA OFERTA</th></tr>';
+        foreach ($tabla2 as $r) {
+            echo '<tr>' . $celda($r['docente'] ?? null) . $celda($r['programa'] ?? null)
+               . $celda($r['materia_labor'] ?? null) . $celda($r['codigo_materia_labor'] ?? null)
+               . $celda($r['grupo'] ?? null) . $celda($r['horas_teoricas'] ?? null)
+               . $celda($r['codigo_materia_oferta'] ?? null) . $celda($r['materia_oferta'] ?? null) . '</tr>';
+        }
+        echo '</table><br>';
+    }
+
+    if (!empty($tabla3)) {
+        echo '<h3>&#128683; Oferta inexistente</h3>';
+        echo '<p>Estos registros existen en Labor pero NO tienen correspondencia en Oferta.</p>';
+        echo '<table style="border-collapse:collapse;width:100%;"><tr>'
            . '<th style="' . $thEstilo('#b91c1c') . '">APELLIDOS NOMBRES</th>'
            . '<th style="' . $thEstilo('#b91c1c') . '">PROGRAMA</th>'
            . '<th style="' . $thEstilo('#b91c1c') . '">NOMBRE MATERIA</th>'
@@ -2679,102 +2304,18 @@ case 'exportar_observacion_word':
            . '<th style="' . $thEstilo('#b91c1c') . '">GRUPO</th>'
            . '<th style="' . $thEstilo('#b91c1c') . '">HORAS TEÓRICAS</th>'
            . '<th style="' . $thEstilo('#b91c1c') . '">PE</th></tr>';
-
         foreach ($tabla3 as $r) {
-            $subtipoLabel = ($r['subtipo'] === 'FALTA_GRUPO')
-                ? '<span class="subtipo-falta-grupo">FALTA GRUPO</span>'
-                : '<span class="subtipo-sin-oferta">SIN OFERTA</span>';
-
-            // Si es FALTA_GRUPO, agregar tooltip con detalle de cobertura
-            $detalleCobertura = '';
-            if ($r['subtipo'] === 'FALTA_GRUPO' && !empty($r['detalle_cobertura'])) {
-                $dc = $r['detalle_cobertura'];
-                $detalleCobertura = ' title="Ofertas disponibles: ' . ($dc['ofertas_disponibles'] ?? '?')
-                                  . ' | Ofertas necesarias: ' . ($dc['ofertas_necesarias'] ?? '?')
-                                  . ' | Horas Labor: ' . ($dc['horas_labor'] ?? '?')
-                                  . ' | PE: ' . ($dc['pe'] ?? '?') . '"';
-            }
-
-            echo '<tr' . $detalleCobertura . '>'
-               . '<td style="border:1px solid #999;padding:1px 3px;font-size:8pt;text-align:center;">' . $subtipoLabel . '</td>'
-               . $celda($r['departamento'] ?? null)
-               . $celda($r['docente'] ?? null)
-               . $celda($r['programa'] ?? null)
-               . $celda($r['materia'] ?? null)
-               . $celda($r['codigo_materia'] ?? null)
-               . $celda($r['grupo'] ?? null)
-               . $celda($r['horas_teoricas'] ?? null)
-               . $celdaPE($r['pe'] ?? null) . '</tr>';
+            echo '<tr>' . $celda($r['docente'] ?? null) . $celda($r['programa'] ?? null)
+               . $celda($r['materia'] ?? null) . $celda($r['codigo_materia'] ?? null)
+               . $celda($r['grupo'] ?? null) . $celda($r['horas_teoricas'] ?? null)
+               . $celda($r['pe'] ?? null) . '</tr>';
         }
         echo '</table><br>';
     }
 
-    // 3. Programa similar o diferente
-    if (!empty($tablaProgramaDiferente)) {
-        echo '<h3>&#128202; Programa similar o diferente</h3>';
-        echo '<p style="font-size:8.5pt;">Se detectaron diferencias entre el programa reportado en Labor y el registrado en Oferta.</p>';
-
-        echo '<table style="border-collapse:collapse;width:100%;table-layout:auto;"><tr>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:14%;">APELLIDOS NOMBRES</th>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:20%;">PROGRAMA LABOR</th>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:20%;">PROGRAMA OFERTA</th>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:18%;">MAT LABOR</th>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:8%;text-align:center;">COD LABOR</th>'
-           . '<th style="' . $thEstilo('#b45309') . 'width:8%;text-align:center;">GRUPO</th>'
-           . '</tr>';
-
-        foreach ($tablaProgramaDiferente as $r) {
-            echo '<tr>'
-               . $celda($r['docente'] ?? null)
-               . $celda($r['programa_labor'] ?? null)
-               . $celda($r['programa_oferta'] ?? null)
-               . $celda($r['materia'] ?? null)
-               . $celda($r['codigo'] ?? null)
-               . $celda($r['grupo'] ?? null)
-               . '</tr>';
-        }
-
-        echo '</table><br>';
-    }
-
-    // 4. Diferencia en códigos de labor y oferta
-    if (!empty($tabla2)) {
-        echo '<h3>&#128269; Diferencia en códigos de labor y oferta</h3>';
-        echo '<p style="font-size:8.5pt;">Se detectaron asignaturas con diferencia entre los códigos reportados en Labor y los registrados en Oferta.</p>';
-
-        echo '<table style="border-collapse:collapse;width:100%;table-layout:auto;"><tr>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:10%;">APELLIDOS NOMBRES</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:15%;">PROGRAMA LABOR</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:15%;">PROGRAMA OFERTA</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:14%;">MAT LABOR</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:6%;text-align:center;">COD LABOR</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:6%;text-align:center;">GRUPO</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:5%;text-align:center;">HRS T</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:8%;text-align:center;">COD OFERTA</th>'
-           . '<th style="' . $thEstilo('#4338ca') . 'width:15%;">MAT OFERTA</th>'
-           . '</tr>';
-
-        foreach ($tabla2 as $r) {
-            echo '<tr>'
-               . $celda($r['docente'] ?? null)
-               . $celda($r['programa_labor'] ?? null)
-               . $celda($r['programa_oferta'] ?? null)
-               . $celda($r['materia_labor'] ?? null)
-               . $celda($r['codigo_materia_labor'] ?? null)
-               . $celda($r['grupo'] ?? null)
-               . $celda($r['horas_teoricas'] ?? null)
-               . $celda($r['codigo_materia_oferta'] ?? null)
-               . $celda($r['materia_oferta'] ?? null)
-               . '</tr>';
-        }
-
-        echo '</table><br>';
-    }
-
-    // 5. Solo en Oferta
     if (!empty($tabla4)) {
         echo '<h3>&#128203; Solo en Oferta (sin Labor)</h3>';
-        echo '<p style="font-size:8.5pt;">Estos registros existen en Oferta pero NO tienen correspondencia en Labor.</p>';
+        echo '<p>Estos registros existen en Oferta pero NO tienen correspondencia en Labor.</p>';
         echo '<table style="border-collapse:collapse;width:100%;"><tr>'
            . '<th style="' . $thEstilo('#be185d') . '">APELLIDOS NOMBRES</th>'
            . '<th style="' . $thEstilo('#be185d') . '">PROGRAMA</th>'
@@ -2786,79 +2327,23 @@ case 'exportar_observacion_word':
         foreach ($tabla4 as $r) {
             echo '<tr>' . $celda($r['docente'] ?? null) . $celda($r['programa'] ?? null)
                . $celda($r['materia'] ?? null) . $celda($r['codigo_materia'] ?? null)
-               . $celda($r['grupo'] ?? null) . $celdaMatriculados($r['matriculados'] ?? null)
+               . $celda($r['grupo'] ?? null) . $celda($r['matriculados'] ?? null)
                . $celda($r['cupo'] ?? null) . '</tr>';
         }
         echo '</table><br>';
     }
 
-    // 6. Registros duplicados en Labor
-    if (!empty($tablaDuplicados)) {
-        echo '<h3>&#128203; Registro duplicado en Labor</h3>';
-        echo '<p style="font-size:8.5pt;">Se encontraron registros duplicados en la fuente Labor para el mismo docente, código de materia y grupo, con o sin cambio de programa.</p>';
-        echo '<table style="border-collapse:collapse;width:100%;"><tr>'
-           . '<th style="' . $thEstilo('#0891b2') . '">DOCENTE</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">PROGRAMA</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">MATERIA</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">CÓDIGO</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">GRUPO</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">HORAS</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">PE</th>'
-           . '<th style="' . $thEstilo('#0891b2') . '">ID REGISTRO</th></tr>';
-        foreach ($tablaDuplicados as $r) {
-            echo '<tr>' . $celda($r['docente'] ?? null) . $celda($r['programa'] ?? null)
-               . $celda($r['materia'] ?? null) . $celda($r['codigo_materia'] ?? null)
-               . $celda($r['grupo'] ?? null) . $celda($r['horas_teoricas'] ?? null)
-               . $celdaPE($r['pe'] ?? null) . $celda($r['id'] ?? null) . '</tr>';
-        }
-        echo '</table><br>';
+    if (empty($tabla1) && empty($tabla2) && empty($tabla3) && empty($tabla4)) {
+        echo '<p><i>Todas las filas de esta observación ya fueron subsanadas o no se encontraron '
+           . 'en el periodo vigente.</i></p>';
     }
 
-    // 7. Grupos sin matriculados
-    if (!empty($tablaSinMatriculados)) {
-        echo '<h3>&#128203; Grupos sin matriculados</h3>';
-        echo '<p style="font-size:8.5pt;">Los siguientes grupos tienen matrícula 0 en Oferta.</p>';
-        echo '<table style="border-collapse:collapse;width:100%;"><tr>'
-           . '<th style="' . $thEstilo('#ea580c') . '">DOCENTE</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">PROGRAMA OFERTA</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">MAT LABOR</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">MAT OFERTA</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">COD LABOR</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">COD OFERTA</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">GRUPO OFERTA</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">MATRICULADOS</th>'
-           . '<th style="' . $thEstilo('#ea580c') . '">CUPO</th></tr>';
-        foreach ($tablaSinMatriculados as $r) {
-            echo '<tr>' . $celda($r['docente'] ?? null)
-               . $celda($r['programa_oferta'] ?? null)
-               . $celda($r['materia_labor'] ?? null)
-               . $celda($r['materia_oferta'] ?? null)
-               . $celda($r['codigo_materia_labor'] ?? null)
-               . $celda($r['codigo_materia_oferta'] ?? null)
-               . $celda($r['grupo_oferta'] ?? null)
-               . $celdaMatriculados($r['matriculados'] ?? null)
-               . $celda($r['cupo'] ?? null) . '</tr>';
-        }
-        echo '</table><br>';
-    }
-
-    // Mensaje final
-    if (empty($tabla1) && empty($tablaProgramaDiferente) && empty($tabla2) && empty($tabla3) && empty($tabla4) && empty($tablaDuplicados) && empty($tablaSinMatriculados)) {
-        echo '<p style="font-size:9pt;font-style:italic;">Todas las filas de esta observación ya fueron subsanadas o no se encontraron '
-           . 'en el periodo vigente.</p>';
-    }
-
-    echo '<div style="margin-top:16px;font-size:8pt;color:#666;border-top:1px solid #ddd;padding-top:6px;">'
-       . 'Documento generado automáticamente desde el Sistema de Auditoría Docente - Universidad del Cauca<br>'
-       . 'Fecha de generación: ' . date('Y-m-d H:i:s') . '</div>';
-
-    echo '</div></body></html>';
+    echo '</body></html>';
     break;
-
         default:
             echo json_encode([
                 'success' => false,
-                'error' => 'Acción no válida. Opciones: filtros, alertas, docente_radiografia, docente_periodo, materia_historico, labor_materia_grupo, exportar_excel, exportar_observacion_word, guardar_observacion, obtener_observacion, listar_observaciones',
+                'error' => 'Acción no válida. Opciones: filtros, alertas, docente_radiografia, docente_periodo, materia_historico, labor_materia_grupo, exportar_excel',
             ]);
             break;
     }

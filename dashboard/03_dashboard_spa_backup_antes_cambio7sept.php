@@ -83,53 +83,13 @@
     #simca-dropzone.dragover i {
         color: #2563eb !important;
     }
-    /* --- KPIs mini junto al título del panel de filtros --- */
-    /* --- Panel de filtros inmovilizado al hacer scroll --- */
-    #panel-filtros {
-        position: sticky;
-        top: 62px;             /* justo debajo del header sticky (z-30) */
-        z-index: 20;
-        box-shadow: 0 4px 10px -4px rgba(0,0,0,.12);
-    }
-
-    .kpi-mini-wrap {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 14px;
-        margin-left: auto;
-        align-items: center;
-    }
-    .kpi-mini {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 4px;
-        white-space: nowrap;
-        cursor: default;
-    }
-    .kpi-mini i { font-size: 10px; opacity: .85; }
-    .kpi-mini .kpi-mini-valor { font-weight: 700; font-size: 13px; }
-    .kpi-mini .kpi-mini-label {
-        font-size: 9.5px;
-        font-weight: 500;
-        color: #94a3b8;
-        letter-spacing: .02em;
-    }
-    @media (max-width: 1024px) {
-        .kpi-mini .kpi-mini-label { display: none; }
-        .kpi-mini-wrap { gap: 12px; }
-    }
-    @media (max-width: 768px) {
-        .kpi-mini-wrap { width: 100%; margin-left: 0; margin-top: 6px; gap: 14px; }
-    }
-
     .alertas-stack {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
     width: 100%;
-    max-width: 100%;
+    max-width: 190px;
     margin: 0 auto;
 }
 
@@ -137,32 +97,19 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 3px;
-    padding: 3px 7px;
-    border-radius: 6px;
-    font-size: 9px;
+    gap: 4px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 9.5px;
     font-weight: 700;
     letter-spacing: .01em;
-    white-space: normal;
-    line-height: 1.15;
-    text-align: center;
+    white-space: nowrap;
+    line-height: 1.25;
     border: 1px solid transparent;
     box-sizing: border-box;
-    min-height: 24px;
-}
-
-/* Badges secundarios (DUPLICIDAD, PE 0): más pequeños y discretos. */
-.badge-alerta-secundario {
-    font-size: 7.5px;
-    padding: 2px 5px;
-    border-radius: 4px;
-    min-height: 16px;
-    line-height: 1.1;
-}
-
-@media (max-width: 768px) {
-    .badge-alerta { font-size: 8px; min-height: 20px; padding: 2px 5px; }
-    .badge-alerta-secundario { font-size: 7px; min-height: 14px; }
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* El badge principal (estado del cruce Labor/Oferta) es clicable */
@@ -265,6 +212,16 @@ thead th {
     min-width: 0 !important; /* anula cualquier min-width heredado */
 }
 
+/* Columna de Alertas: al ser más angosta (20% en vez de 210px fijos),
+   los badges se acortan con elipsis en vez de forzar ancho. */
+.alertas-stack {
+    max-width: 100%;
+}
+.badge-alerta {
+    font-size: 9px;
+    padding: 3px 6px;
+}
+
 /* Encabezados de columnas angostas (Observación / Acciones / Horas)
    se ven mejor centrados y en 1-2 líneas cortas, no una sola palabra
    larga que se desborda. */
@@ -279,9 +236,6 @@ thead th {
 #tbl-body td {
     padding-left: 10px;
     padding-right: 10px;
-}
-    .badge-codigo-xs {
-    font-size: 7.5px;
 }
 </style>
 </head>
@@ -335,55 +289,9 @@ thead th {
 </header>
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-    <!-- Panel de Filtros Superiores (sticky) -->
-    <div id="panel-filtros" class="bg-white p-5 rounded-lg shadow-md mb-6 border-l-4 border-blue-600">
-        <div class="flex flex-wrap items-center gap-2 mb-3">
-            <h2 class="text-md font-semibold text-gray-700 flex items-center"><i class="fa-solid fa-filter mr-1"></i> Filtros de Selección</h2>
-            <div class="kpi-mini-wrap">
-                <span class="kpi-mini" title="Total Registros">
-                    <i class="fa-solid fa-layer-group" style="color:#64748b"></i>
-                    <span class="kpi-mini-valor text-gray-800" id="kpi-total">0</span>
-                    <span class="kpi-mini-label">Total</span>
-                </span>
-                <span class="kpi-mini" title="Consistentes OK">
-                    <i class="fa-solid fa-circle-check" style="color:#22c55e"></i>
-                    <span class="kpi-mini-valor text-green-700" id="kpi-ok">0</span>
-                    <span class="kpi-mini-label">OK</span>
-                </span>
-                <span class="kpi-mini" title="Oferta Inexistente">
-                    <i class="fa-solid fa-circle-xmark" style="color:#ef4444"></i>
-                    <span class="kpi-mini-valor text-red-600" id="kpi-critico">0</span>
-                    <span class="kpi-mini-label">Sin Oferta</span>
-                </span>
-                <span class="kpi-mini" title="Prestación de Servicio">
-                    <i class="fa-solid fa-briefcase" style="color:#f59e0b"></i>
-                    <span class="kpi-mini-valor text-amber-600" id="kpi-servicio">0</span>
-                    <span class="kpi-mini-label">Servicio</span>
-                </span>
-                <span class="kpi-mini" title="Labor Inexistente">
-                    <i class="fa-solid fa-user-slash" style="color:#ec4899"></i>
-                    <span class="kpi-mini-valor text-pink-600" id="kpi-labor-inexistente">0</span>
-                    <span class="kpi-mini-label">Sin Labor</span>
-                </span>
-                <span class="kpi-mini" title="Revisar Código Materia">
-                    <i class="fa-solid fa-key" style="color:#6366f1"></i>
-                    <span class="kpi-mini-valor text-indigo-600" id="kpi-codigo-materia">0</span>
-                    <span class="kpi-mini-label">Código</span>
-                </span>
-                <!-- NUEVO KPI Duplicados exactos -->
-                <span class="kpi-mini" title="Registros duplicados exactos">
-                    <i class="fa-solid fa-copy" style="color:#06b6d4"></i>
-                    <span class="kpi-mini-valor text-cyan-700" id="kpi-duplicado">0</span>
-                    <span class="kpi-mini-label">Duplicados</span>
-                </span>
-                <!-- NUEVO KPI 0 Matriculados -->
-                <span class="kpi-mini" title="Grupos con cero estudiantes matriculados">
-                    <i class="fa-solid fa-users-slash" style="color:#ea580c"></i>
-                    <span class="kpi-mini-valor text-orange-600" id="kpi-cero-matriculados">0</span>
-                    <span class="kpi-mini-label">0 Matr.</span>
-                </span>
-            </div>
-        </div>
+    <!-- Panel de Filtros Superiores -->
+    <div class="bg-white p-5 rounded-lg shadow-md mb-6 border-l-4 border-blue-600">
+        <h2 class="text-md font-semibold text-gray-700 mb-3"><i class="fa-solid fa-filter mr-1"></i> Filtros de Selección</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <div>
                 <label class="block text-xs font-bold text-gray-600 mb-1">Periodo</label>
@@ -417,7 +325,6 @@ thead th {
                     <option value="REVISAR_PROGRAMA_DIFERENTE">Programa Diferente / Similar</option>
                     <option value="LABOR_INEXISTENTE">No existe en Labor</option>
                     <option value="REVISAR_CODIGO_MATERIA_DIFERENTE">Revisar código de materia</option>
-                    <option value="CERO_MATRICULADOS">0 Matriculados</option>
                     <option value="PE_CERO">PE = 0</option>
                 </select>
             </div>
@@ -430,6 +337,34 @@ thead th {
             <i class="fa-solid fa-circle-info mr-1"></i>
             Nota: al filtrar por Facultad, Departamento o Vinculación, no se muestran registros que existen solo en Oferta (esos atributos no existen en Oferta).
         </p>
+    </div>
+
+    <!-- Tarjetas KPI Top -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-gray-500">
+            <p class="text-xs font-bold text-gray-500 uppercase">Total Registros</p>
+            <p class="text-2xl font-bold text-gray-800" id="kpi-total">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-green-500">
+            <p class="text-xs font-bold text-green-600 uppercase">Consistentes OK</p>
+            <p class="text-2xl font-bold text-green-700" id="kpi-ok">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-red-500">
+            <p class="text-xs font-bold text-red-600 uppercase">Oferta Inexistente</p>
+            <p class="text-2xl font-bold text-red-700" id="kpi-critico">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-amber-500">
+            <p class="text-xs font-bold text-amber-600 uppercase">Prestación de Servicio</p>
+            <p class="text-2xl font-bold text-amber-700" id="kpi-servicio">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-pink-500">
+            <p class="text-xs font-bold text-pink-600 uppercase">Labor Inexistente</p>
+            <p class="text-2xl font-bold text-pink-700" id="kpi-labor-inexistente">0</p>
+        </div>
+        <div class="bg-white p-4 rounded-lg shadow border-b-4 border-indigo-500">
+            <p class="text-xs font-bold text-indigo-600 uppercase">Revisar Código Materia</p>
+            <p class="text-2xl font-bold text-indigo-700" id="kpi-codigo-materia">0</p>
+        </div>
     </div>
 
     <!-- Tabla Dinámica con Paginación -->
@@ -486,10 +421,8 @@ thead th {
         <th data-col="horas" onclick="ordenarPor('horas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Horas <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="alertas" onclick="ordenarPor('alertas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700" title="Resultado del cruce Labor vs Oferta y validaciones internas de Labor.">Alertas <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="historica" onclick="ordenarPor('historica')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Alerta Histórica <span class="sort-arrow text-blue-300"></span></th>
-       <th data-col="observacion" onclick="ordenarPor('observacion')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">
-            Observación <span class="sort-arrow text-blue-300"></span>
-        </th>
-                <th class="py-3 px-4 text-center">Acciones</th>
+        <th class="py-3 px-4 text-center">Observación</th>
+        <th class="py-3 px-4 text-center">Acciones</th>
     </tr>
 </thead>
 <tbody id="tbl-body" class="divide-y divide-gray-200">
@@ -505,6 +438,19 @@ thead th {
         </div>
     </div>
 
+    <!-- Modal Radiografía Docente -->
+    <div id="modal-radiografia" class="fixed inset-0 bg-black bg-opacity-50 hidden flex justify-center items-center p-4 z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h3 class="text-lg font-bold text-gray-800" id="modal-docente-nombre">Radiografía del Docente</h3>
+                <button onclick="cerrarModal()" class="text-gray-500 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            <div id="modal-contenido">
+                <p class="text-xs text-gray-500">Cargando datos del docente...</p>
+            </div>
+        </div>
+    </div>
+</div>
 <!-- Modal Carga SIMCA -->
 <div id="modal-simca" class="fixed inset-0 bg-black/60 hidden justify-center items-center p-4 z-50 backdrop-blur-sm transition-opacity duration-300 opacity-0">
 
@@ -629,10 +575,9 @@ function claveFilaObs(row) {
     return `${row.identificacion}|${row.periodo}|${row.codigo_materia}|${row.grupo}`;
 }
 
-// ---- FUNCIÓN ACTUALIZADA: prioriza alerta_duplicado_exacto ----
 function estadoOriginalDeFila(row) {
+    // Prioriza la alerta interna de duplicidad, igual que el resto del dashboard.
     if (row.alerta_labor === 'DUPLICIDAD_GRUPO_EXCESO_PE') return 'DUPLICIDAD_GRUPO_EXCESO_PE';
-    if (row.alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') return 'LABOR_DUPLICADO_EXACTO';
     return row.estado_alerta;
 }
 // Variables para relaciones entre facultad y departamento (desde labor)
@@ -794,13 +739,6 @@ async function cargarAlertas(pagina = 1) {
             document.getElementById('kpi-servicio').innerText = json.kpis.prestacion_servicio || 0;
             document.getElementById('kpi-labor-inexistente').innerText = json.kpis.labor_inexistente || 0;
             document.getElementById('kpi-codigo-materia').innerText = json.kpis.revisar_codigo_materia || 0;
-            // ---- ASIGNAR VALOR AL NUEVO KPI ----
-            document.getElementById('kpi-duplicado').innerText = json.kpis.duplicado_exacto || 0;
-            // ---- NUEVO KPI 0 Matriculados (con validación de existencia) ----
-            const kpiCeroMatriculadosEl = document.getElementById('kpi-cero-matriculados');
-            if (kpiCeroMatriculadosEl) {
-                kpiCeroMatriculadosEl.innerText = json.kpis.cero_matriculados || 0;
-            }
 
             datosCargados = data;
             renderizarTabla();
@@ -813,7 +751,6 @@ async function cargarAlertas(pagina = 1) {
 /* ----------------------------------------------------------------
    ORDENAMIENTO CON PRIORIDAD PARA LA COLUMNA "Alertas"
    ---------------------------------------------------------------- */
-// ---- CONSTANTE PRIORIDAD_ALERTA AMPLIADA ----
 const PRIORIDAD_ALERTA = {
     'OFERTA_INEXISTENTE|DUPLICIDAD_GRUPO_EXCESO_PE': 0,
     'OFERTA_INEXISTENTE|': 1,
@@ -825,31 +762,12 @@ const PRIORIDAD_ALERTA = {
     'REVISAR_PROGRAMA_DIFERENTE|': 7,
     'OK|DUPLICIDAD_GRUPO_EXCESO_PE': 8,
     'OK|': 9,
-    // Nuevas claves para duplicado exacto
-    'OFERTA_INEXISTENTE|DUPLICADO_EXACTO': 10,
-    'LABOR_INEXISTENTE|DUPLICADO_EXACTO': 11,
-    'REVISAR_CODIGO_MATERIA_DIFERENTE|DUPLICADO_EXACTO': 12,
-    'FALTA_GRUPO_EN_OFERTA|DUPLICADO_EXACTO': 13,
-    'REVISAR_PROGRAMA_DIFERENTE|DUPLICADO_EXACTO': 14,
-    'OK|DUPLICADO_EXACTO': 15,
-    'CERO_MATRICULADOS|DUPLICIDAD_GRUPO_EXCESO_PE': 16,
-    'CERO_MATRICULADOS|': 17,
-    'CERO_MATRICULADOS|DUPLICADO_EXACTO': 18,
 };
 
 function getPrioridadAlerta(row) {
     const estado = row.estado_alerta;
-    // Usar alerta_duplicado_exacto o alerta_labor según corresponda
-    const labor = row.alerta_labor || '';
-    const duplicadoExacto = row.alerta_duplicado_exacto || '';
-    // Primero priorizar duplicado exacto si existe
-    if (duplicadoExacto === 'LABOR_DUPLICADO_EXACTO') {
-        const clave = `${estado}|DUPLICADO_EXACTO`;
-        if (PRIORIDAD_ALERTA[clave] !== undefined) return PRIORIDAD_ALERTA[clave];
-        return 15; // fallback
-    }
-    // Si no, usar el estado original con labor
-    const clave = `${estado}|${labor}`;
+    const labor = row.alerta_labor;
+    const clave = `${estado}|${labor || ''}`;
     return PRIORIDAD_ALERTA[clave] ?? 10;
 }
 
@@ -866,16 +784,6 @@ const sortKeyFns = {
         if (!r.alerta_historica) return 9;
         return r.alerta_historica === 'SALTO_FUERTE' ? 0 : 1;
     },
-    observacion: r => {
-        const estado = r.estado_observacion_asociada || '';
-        const prioridad = {
-            'ABIERTA': 0,
-            'SUBSANADA': 1,
-            'CERRADA': 2,
-            '': 3
-        };
-        return prioridad[estado] ?? 3;
-    }
 };
 
 function ordenarPor(key) {
@@ -922,7 +830,7 @@ function renderizarTabla() {
 
     const tbody = document.getElementById('tbl-body');
     if (paginaDatos.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-6 text-gray-400">No se encontraron hallazgos con los filtros seleccionados.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-gray-400">No se encontraron hallazgos con los filtros seleccionados.</td></tr>`;
         return;
     }
 
@@ -975,11 +883,12 @@ function renderizarTabla() {
         <td class="py-3 px-4 text-center">${renderBadgeObservacion(row)}</td>
         <td class="py-3 px-2 text-center">
             <div class="acciones-wrap">
+                ${tieneIdentificacion ? `<button onclick="verRadiografia('${esc(row.identificacion)}')" title="Radiografía del docente" class="btn-accion-icono bg-blue-600 hover:bg-blue-700"><i class="fa-solid fa-eye"></i></button>` : ''}
                 <button onclick="abrirModalMateria('${esc(codigoContexto)}')" title="Evolución de la materia por periodo" class="btn-accion-icono bg-purple-600 hover:bg-purple-700"><i class="fa-solid fa-chart-column"></i></button>
             </div>
         </td>
     </tr>`;
-});
+}).join('');
 
 
 }
@@ -1027,7 +936,7 @@ function badgePECero(pe) {
 }
 
 /* ----------------------------------------------------------------
-   RENDER DE ALERTAS COMBINADAS (CON NUEVOS BADGES SECUNDARIOS)
+   RENDER DE ALERTAS COMBINADAS (con badge PE 0 incluido)
    ---------------------------------------------------------------- */
 function renderAlertasCombinadas(row) {
     const estado = row.estado_alerta;
@@ -1037,7 +946,10 @@ function renderAlertasCombinadas(row) {
     const tienePECero = esPECero(pe);
 
     // -----------------------------------------------------------
-    // 1. Badge PRINCIPAL
+    // 1. Determinar el badge PRINCIPAL (color/texto/tooltip) según
+    //    el estado_alerta. Ya no se hace "return" aquí: solo se
+    //    calculan los datos, para poder seguir agregando badges
+    //    secundarios después sin perderlos.
     // -----------------------------------------------------------
     let claseEstado = 'bg-gray-100 text-gray-800 border-gray-300';
     let textoEstado = estado || 'SIN ESTADO';
@@ -1048,38 +960,34 @@ function renderAlertasCombinadas(row) {
         claseEstado = 'bg-green-100 text-green-800 border-green-300';
         textoEstado = 'OK';
     } else if (estado === 'OFERTA_INEXISTENTE') {
-        claseEstado = 'bg-red-100 text-red-800 border-red-300 badge-codigo-xs';
-        textoEstado = 'OFERTA<br>INEXISTENTE';
+        claseEstado = 'bg-red-100 text-red-800 border-red-300';
+        textoEstado = 'OFERTA INEXISTENTE';
     } else if (estado === 'FALTA_GRUPO_EN_OFERTA') {
         claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
-        textoEstado = 'GRUPO SIN<br>OFERTA';
+        textoEstado = 'GRUPO SIN OFERTA';
     } else if (estado === 'REVISAR_PROGRAMA_DIFERENTE') {
         const coincidencia = row.coincidencia_programa;
         if (coincidencia === 'ALTA') {
             claseEstado = 'bg-amber-100 text-amber-800 border-amber-300';
-            textoEstado = 'PROGRAMA<br>SIMILAR';
+            textoEstado = 'PROGRAMA SIMILAR';
         } else if (coincidencia === 'MEDIA') {
             claseEstado = 'bg-amber-100 text-amber-800 border-amber-300';
-            textoEstado = 'PROGRAMA SIMILAR<br>(R)';
+            textoEstado = 'PROGRAMA SIMILAR (REVISAR)';
         } else {
             claseEstado = 'bg-red-100 text-red-800 border-red-300';
-            textoEstado = 'PROGRAMA<br>DIFERENTE';
+            textoEstado = 'PROGRAMA DIFERENTE';
         }
         const pct = (row.similitud_programa !== null && row.similitud_programa !== undefined)
             ? Math.round(row.similitud_programa * 100) : 'N/D';
         tooltipPrincipal = `Programa Labor: ${row.programa_labor || '—'} | Programa Oferta: ${row.programa_oferta || '—'} | Similitud: ${pct}% | Motivo: ${row.motivo_programa || ''}`;
     } else if (estado === 'LABOR_INEXISTENTE') {
         claseEstado = 'bg-pink-100 text-pink-800 border-pink-300';
-        textoEstado = 'NO EXISTE<br>EN LABOR';
+        textoEstado = 'NO EXISTE EN LABOR';
         tooltipPrincipal = 'El registro existe en Oferta, pero no se encontró una asignación correspondiente en Labor.';
         programaContexto = row.programa_oferta || '';
-    } else if (estado === 'CERO_MATRICULADOS') {
-        claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
-        textoEstado = '0<br>MATRICULADOS';
-        tooltipPrincipal = 'La oferta asociada a este registro tiene cero estudiantes matriculados.';
     } else if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE') {
-         claseEstado = 'bg-indigo-100 text-indigo-800 border-indigo-300 badge-codigo-xs';
-        textoEstado = 'REVISAR<br>CÓDIGO MATERIA';
+        claseEstado = 'bg-indigo-100 text-indigo-800 border-indigo-300';
+        textoEstado = 'REVISAR CÓDIGO MATERIA';
         const dc = row.detalle_codigo_posible_error || {};
         const pct = (dc.similitud_programa !== null && dc.similitud_programa !== undefined)
             ? Math.round(dc.similitud_programa * 100) : 'N/D';
@@ -1087,69 +995,44 @@ function renderAlertasCombinadas(row) {
         programaContexto = row.programa_labor || '';
     }
 
+    // -----------------------------------------------------------
+    // 2. data-attrs para el badge principal (mismo contexto que
+    //    usaba cada rama antes de la reescritura).
+    // -----------------------------------------------------------
     const dataAttrs = `data-identificacion="${esc(row.identificacion)}" data-periodo="${esc(row.periodo)}" `
         + `data-codigo-materia="${esc(row.codigo_materia)}" data-programa="${esc(programaContexto)}" `
         + `data-grupo="${esc(row.grupo)}" data-estado-alerta="${esc(estado)}" `
         + `data-alerta-labor="${esc(labor)}" data-tiene-duplicidad="${tieneDuplicidad ? 1 : 0}"`;
 
     const badgePrincipalHtml = `<button type="button" class="js-auditoria-fila badge-alerta badge-alerta-principal ${claseEstado}"
-        ${dataAttrs} title="${esc(tooltipPrincipal)}">${textoEstado}</button>`;
+        ${dataAttrs} title="${esc(tooltipPrincipal)}">${esc(textoEstado)}</button>`;
 
     // -----------------------------------------------------------
-    // 2. Badges SECUNDARIOS (incluye los 3 nuevos)
+    // 3. Badges SECUNDARIOS: ahora SIEMPRE se evalúan, sin importar
+    //    cuál haya sido el estado principal. Esto es lo que antes
+    //    se perdía para LABOR_INEXISTENTE / REVISAR_CODIGO_MATERIA_DIFERENTE.
     // -----------------------------------------------------------
     const badgesSecundarios = [];
 
-    // DUPLICIDAD DE GRUPO (existente)
     if (tieneDuplicidad) {
         const detalleDup = row.detalle_alerta_labor || {};
         const tooltipDup = detalleDup.motivo
             ? `Duplicidad de grupo: ${detalleDup.docentes || ''} · Horas totales: ${detalleDup.horas_totales ?? '—'} · PE: ${detalleDup.pe_unico ?? '—'} · Exceso: ${detalleDup.exceso_horas ?? '—'}`
             : 'Este grupo tiene varios docentes asignados y la suma de horas supera el PE.';
         badgesSecundarios.push(
-            `<span class="badge-alerta badge-alerta-secundario con-salto bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">HORAS<br>EXCEDE PE</span>`
+            `<span class="badge-alerta badge-alerta-secundario bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">DUPLICIDAD DE GRUPO</span>`
         );
     }
 
-    // PE 0 (existente)
     if (tienePECero) {
         badgesSecundarios.push(
             `<span class="badge-alerta badge-alerta-secundario bg-red-50 text-red-700 border-red-300" title="El PE de esta asignación es 0. Este valor requiere revisión."><i class="fa-solid fa-triangle-exclamation"></i>&nbsp;PE 0</span>`
         );
     }
 
-    // ---- NUEVO: PROGRAMA SIMILAR / DIFIERE (solo para REVISAR_CODIGO_MATERIA_DIFERENTE) ----
-    if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE' && row.coincidencia_programa && ['ALTA','MEDIA','BAJA'].includes(row.coincidencia_programa)) {
-        const pct = row.similitud_programa !== null && row.similitud_programa !== undefined ? Math.round(row.similitud_programa * 100) : 0;
-        const texto = (row.coincidencia_programa === 'ALTA' || row.coincidencia_programa === 'MEDIA') ? `PROGRAMA SIMILAR (${pct}%)` : 'PROGRAMA DIFIERE';
-        const tooltip = `Programa Labor: ${row.programa_labor || '—'} | Programa Oferta: ${row.programa_oferta || '—'} | Similitud: ${pct}%`;
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-violet-100 text-violet-800 border-violet-300" title="${esc(tooltip)}">${texto}</span>`);
-    }
-
-    // ---- NUEVO: REGISTRO DUPLICADO (cuando alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') ----
-    if (row.alerta_duplicado_exacto === 'LABOR_DUPLICADO_EXACTO') {
-        const det = row.detalle_alerta_duplicado || {};
-        const tooltip = `Repeticiones: ${det.cantidad_registros || '?'} | Programas: ${det.programas || '—'}`;
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-cyan-100 text-cyan-800 border-cyan-300" title="${esc(tooltip)}">GRUPO X2 Labor</span>`);
-    }
-
-    // ---- NUEVO: 0 MATRICULADOS (cuando oferta existe y matriculados === 0) ----
-    // CORREGIDO: usar exclusivamente los campos de la oferta asociada
-    const matriculadosCruce = row.matriculados_oferta ?? row.matriculadosoferta ?? null;
-    const mostrarCeroMatriculados = estado !== 'CERO_MATRICULADOS' &&
-                                    estado !== 'OFERTA_INEXISTENTE' &&
-                                    estado !== 'LABOR_INEXISTENTE' &&
-                                    matriculadosCruce !== null &&
-                                    matriculadosCruce !== '' &&
-                                    Number.isFinite(Number(matriculadosCruce)) &&
-                                    Number(matriculadosCruce) === 0;
-
-    if (mostrarCeroMatriculados) {
-        badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-orange-100 text-orange-800 border-orange-300" title="El grupo asociado a este cruce no tiene estudiantes matriculados.">0 MATRICULADOS</span>`);
-    }
-
     // -----------------------------------------------------------
-    // 3. Ensamblado final
+    // 4. Ensamblar: badge principal arriba, secundarios debajo,
+    //    todos apilados en columna (ver .alertas-stack en el CSS).
     // -----------------------------------------------------------
     return `<div class="alertas-stack">${badgePrincipalHtml}${badgesSecundarios.join('')}</div>`;
 }
@@ -1188,6 +1071,50 @@ function cambiarPagina(delta) {
     renderizarTabla();
 }
 
+/* ----------------------------------------------------------------
+   Radiografía Docente
+   ---------------------------------------------------------------- */
+async function verRadiografia(identificacion) {
+    document.getElementById('modal-radiografia').classList.remove('hidden');
+    const cont = document.getElementById('modal-contenido');
+    cont.innerHTML = `<p class="text-xs text-gray-500">Cargando histórico...</p>`;
+    try {
+        const res = await fetch(`${API_URL}?action=docente_radiografia&identificacion=${identificacion}`);
+        const json = await res.json();
+        if (json.success) {
+            document.getElementById('modal-docente-nombre').innerText = `Radiografía: ${json.docente} (${json.identificacion})`;
+            cont.innerHTML = `
+                <h4 class="font-bold text-sm text-gray-700 mb-2">Histórico Multiperiodo (Labor)</h4>
+                <table class="w-full text-xs text-left mb-4 border">
+                    <thead class="bg-gray-100 font-bold">
+                        <tr>
+                            <th class="p-2 border">Periodo</th>
+                            <th class="p-2 border">Programa</th>
+                            <th class="p-2 border">Materia</th>
+                            <th class="p-2 border">Grupo</th>
+                            <th class="p-2 border">Horas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${json.historico_labor.map(h => `
+                        <tr>
+                            <td class="p-2 border font-bold">${esc(h.periodo)}</td>
+                            <td class="p-2 border">${esc(h.programa)}</td>
+                            <td class="p-2 border">${esc(h.materia)}</td>
+                            <td class="p-2 border">${esc(h.grupo)}</td>
+                            <td class="p-2 border font-bold">${esc(h.horas_teoricas)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+    } catch (err) {
+        cont.innerHTML = `<p class="text-xs text-red-500">Error al cargar la radiografía.</p>`;
+    }
+}
+
+function cerrarModal() {
+    document.getElementById('modal-radiografia').classList.add('hidden');
+}
 
 /* ----------------------------------------------------------------
    Exportar Excel
