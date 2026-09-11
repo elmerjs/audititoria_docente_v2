@@ -28,7 +28,7 @@
         -webkit-box-orient: vertical;
         overflow: hidden;
         max-width: 100%;
-        line-height: 1.3;
+        line-height: 1.2;
     }
     #tbl-body td {
         vertical-align: top;
@@ -57,19 +57,28 @@
         display: inline-flex;
         align-items: center;
         gap: 3px;
-        padding: 1px 7px;
+        width: 110px;
+        min-width: 110px;
+        max-width: 110px;
+        padding: 2px 6px;
+        height: auto;
+        box-sizing: border-box;
         border-radius: 999px;
         background: #fef2f2;
         border: 1px solid #fca5a5;
         color: #b91c1c;
-        font-size: 9px;
+        font-family: inherit;
+        font-size: 8.5px;
         font-weight: 700;
+        line-height: 1.15;
+        letter-spacing: .01em;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         cursor: help;
-        letter-spacing: 0.02em;
     }
     .badge-pe-cero i {
-        font-size: 8px;
+        font-size: 8.5px;
     }
     /* Animaciones del modal SIMCA */
     #modal-simca.opacity-100 { opacity: 1; }
@@ -124,10 +133,11 @@
 
     .alertas-stack {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 3px;
     width: 100%;
     max-width: 100%;
     margin: 0 auto;
@@ -138,35 +148,78 @@
     align-items: center;
     justify-content: center;
     gap: 3px;
-    padding: 3px 7px;
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
+    padding: 2px 6px;
+    height: auto;
     border-radius: 6px;
-    font-size: 9px;
+    font-family: inherit;
+    font-size: 8.5px;
     font-weight: 700;
     letter-spacing: .01em;
-    white-space: normal;
     line-height: 1.15;
     text-align: center;
     border: 1px solid transparent;
     box-sizing: border-box;
-    min-height: 24px;
+}
+.badge-alerta i {
+    font-size: 8.5px;
 }
 
-/* Badges secundarios (DUPLICIDAD, PE 0): más pequeños y discretos. */
+/* Badges secundarios (DUPLICIDAD, PE 0): misma geometría y tipografía
+   que el resto, pero en una sola línea con elipsis si el texto es largo. */
 .badge-alerta-secundario {
-    font-size: 7.5px;
-    padding: 2px 5px;
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
+    padding: 2px 6px;
+    height: auto;
     border-radius: 4px;
-    min-height: 16px;
-    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: help;
 }
 
 @media (max-width: 768px) {
-    .badge-alerta { font-size: 8px; min-height: 20px; padding: 2px 5px; }
-    .badge-alerta-secundario { font-size: 7px; min-height: 14px; }
+    .alertas-stack {
+        display: flex;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        width: 100%;
+        max-width: 100%;
+        margin: 0 auto;
+    }
+    .badge-alerta,
+    .badge-alerta-secundario,
+    .badge-pe-cero {
+        width: 100px;
+        min-width: 100px;
+        max-width: 100px;
+        height: auto;
+        font-size: 7.5px;
+        padding: 2px 5px;
+    }
+    .badge-alerta i,
+    .badge-pe-cero i {
+        font-size: 7.5px;
+    }
+    #tbl-body td.celda-alertas {
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
 }
 
-/* El badge principal (estado del cruce Labor/Oferta) es clicable */
+/* El badge principal (estado del cruce Labor/Oferta) es clicable y
+   admite saltos de línea cuando el texto no cabe en 110px. */
 .badge-alerta-principal {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(0,0,0,.06);
     transition: filter .12s ease, transform .12s ease, box-shadow .12s ease;
@@ -177,16 +230,29 @@
     box-shadow: 0 3px 6px rgba(0,0,0,.10);
 }
 
-/* Badges secundarios (duplicidad, PE 0, etc.) no son clicables por
-   sí mismos: comparten el contexto del badge principal. */
-.badge-alerta-secundario { cursor: help; }
+/* -----------------------------------------------------------------
+   MEJORA: ALTO DINÁMICO REAL DE LA FILA
+   Reducimos el padding vertical de TODAS las celdas del tbody y el
+   line-height de los bloques de texto, para que el alto de la fila
+   dependa del número de alertas (1 alerta = fila baja; 2 = media;
+   3 = alta), no de un piso artificial impuesto por otras columnas.
+   ----------------------------------------------------------------- */
+#tbl-body td {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+#tbl-body td .font-bold,
+#tbl-body td .font-semibold,
+#tbl-body td .cell-clip-2,
+#tbl-body td .cell-clip {
+    line-height: 1.2;
+}
 
-/* Ensancha la celda de Alertas y evita que el resto del layout
-   de la tabla se apriete o se salga de la tarjeta blanca. */
+/* Celda de alertas: sin padding vertical extra (ya lo da el td general) */
 #tbl-body td.celda-alertas {
     vertical-align: middle;
-    padding-top: 8px;
-    padding-bottom: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
 }
 
 /* Asegura que el contenedor blanco de la tabla nunca permita que
@@ -280,9 +346,11 @@ thead th {
     padding-left: 10px;
     padding-right: 10px;
 }
+    /* .badge-codigo-xs ya no fuerza un font-size propio: los badges de
+       la columna Alertas ahora comparten una tipografía 100% uniforme
+       (8.5px) definida en .badge-alerta. */
     .badge-codigo-xs {
-    font-size: 7.5px;
-}
+    }
 </style>
 </head>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -381,6 +449,11 @@ thead th {
                     <i class="fa-solid fa-users-slash" style="color:#ea580c"></i>
                     <span class="kpi-mini-valor text-orange-600" id="kpi-cero-matriculados">0</span>
                     <span class="kpi-mini-label">0 Matr.</span>
+                </span>
+                <span class="kpi-mini" title="Materias con cupos subutilizados por baja matrícula">
+                    <i class="fa-solid fa-people-group" style="color:#0d9488"></i>
+                    <span class="kpi-mini-valor text-teal-700" id="kpi-cupo-subutilizado">0</span>
+                    <span class="kpi-mini-label">Cupo subut.</span>
                 </span>
             </div>
         </div>
@@ -483,7 +556,7 @@ thead th {
         <th data-col="facultad" onclick="ordenarPor('facultad')" class="py-3 px-4 cursor-pointer select-none hover:bg-gray-700">Facultad / Depto <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="programa" onclick="ordenarPor('programa')" class="py-3 px-4 cursor-pointer select-none hover:bg-gray-700">Programa (Labor) <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="materia" onclick="ordenarPor('materia')" class="py-3 px-4 cursor-pointer select-none hover:bg-gray-700">Materia / Cód / Grupo <span class="sort-arrow text-blue-300"></span></th>
-        <th data-col="horas" onclick="ordenarPor('horas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Horas <span class="sort-arrow text-blue-300"></span></th>
+        <th data-col="horas" onclick="ordenarPor('horas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">hr <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="alertas" onclick="ordenarPor('alertas')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700" title="Resultado del cruce Labor vs Oferta y validaciones internas de Labor.">Alertas <span class="sort-arrow text-blue-300"></span></th>
         <th data-col="historica" onclick="ordenarPor('historica')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">Alerta Histórica <span class="sort-arrow text-blue-300"></span></th>
        <th data-col="observacion" onclick="ordenarPor('observacion')" class="py-3 px-4 text-center cursor-pointer select-none hover:bg-gray-700">
@@ -801,6 +874,16 @@ async function cargarAlertas(pagina = 1) {
             if (kpiCeroMatriculadosEl) {
                 kpiCeroMatriculadosEl.innerText = json.kpis.cero_matriculados || 0;
             }
+            // ---- KPI Cupo Subutilizado coherente con los badges visibles ----
+            const kpiCupoSub = document.getElementById('kpi-cupo-subutilizado');
+            if (kpiCupoSub) {
+                const totalCupoSubVisible = data.filter(row =>
+    row.alerta_cupo_subutilizado === 'CUPO_SUBUTILIZADO' &&
+    row.fuente_principal === 'LABOR' &&
+    !!row.oferta_id_asociada
+).length;
+                kpiCupoSub.innerText = totalCupoSubVisible;
+            }
 
             datosCargados = data;
             renderizarTabla();
@@ -823,18 +906,19 @@ const PRIORIDAD_ALERTA = {
     'FALTA_GRUPO_EN_OFERTA|': 5,
     'REVISAR_PROGRAMA_DIFERENTE|DUPLICIDAD_GRUPO_EXCESO_PE': 6,
     'REVISAR_PROGRAMA_DIFERENTE|': 7,
-    'OK|DUPLICIDAD_GRUPO_EXCESO_PE': 8,
-    'OK|': 9,
-    // Nuevas claves para duplicado exacto
-    'OFERTA_INEXISTENTE|DUPLICADO_EXACTO': 10,
-    'LABOR_INEXISTENTE|DUPLICADO_EXACTO': 11,
-    'REVISAR_CODIGO_MATERIA_DIFERENTE|DUPLICADO_EXACTO': 12,
-    'FALTA_GRUPO_EN_OFERTA|DUPLICADO_EXACTO': 13,
-    'REVISAR_PROGRAMA_DIFERENTE|DUPLICADO_EXACTO': 14,
-    'OK|DUPLICADO_EXACTO': 15,
-    'CERO_MATRICULADOS|DUPLICIDAD_GRUPO_EXCESO_PE': 16,
-    'CERO_MATRICULADOS|': 17,
-    'CERO_MATRICULADOS|DUPLICADO_EXACTO': 18,
+    // CERO_MATRICULADOS ahora tiene prioridad ANTES que OK
+    'CERO_MATRICULADOS|DUPLICIDAD_GRUPO_EXCESO_PE': 8,
+    'CERO_MATRICULADOS|': 9,
+    'CERO_MATRICULADOS|DUPLICADO_EXACTO': 10,
+    'OK|DUPLICIDAD_GRUPO_EXCESO_PE': 11,
+    'OK|': 12,
+    'OK|DUPLICADO_EXACTO': 13,
+    // Resto de claves para duplicado exacto
+    'OFERTA_INEXISTENTE|DUPLICADO_EXACTO': 14,
+    'LABOR_INEXISTENTE|DUPLICADO_EXACTO': 15,
+    'REVISAR_CODIGO_MATERIA_DIFERENTE|DUPLICADO_EXACTO': 16,
+    'FALTA_GRUPO_EN_OFERTA|DUPLICADO_EXACTO': 17,
+    'REVISAR_PROGRAMA_DIFERENTE|DUPLICADO_EXACTO': 18,
 };
 
 function getPrioridadAlerta(row) {
@@ -864,7 +948,9 @@ const sortKeyFns = {
     alertas: r => getPrioridadAlerta(r),
     historica: r => {
         if (!r.alerta_historica) return 9;
-        return r.alerta_historica === 'SALTO_FUERTE' ? 0 : 1;
+        if (r.alerta_historica === 'SALTO_FUERTE') return 0;
+        if (r.alerta_historica === 'SIN_HISTORIAL') return 1;
+        return 2; // SALTO_JUSTIFICADO
     },
     observacion: r => {
         const estado = r.estado_observacion_asociada || '';
@@ -1049,37 +1135,37 @@ function renderAlertasCombinadas(row) {
         textoEstado = 'OK';
     } else if (estado === 'OFERTA_INEXISTENTE') {
         claseEstado = 'bg-red-100 text-red-800 border-red-300 badge-codigo-xs';
-        textoEstado = 'OFERTA<br>INEXISTENTE';
+        textoEstado = 'OFERTA INEXISTENTE';
     } else if (estado === 'FALTA_GRUPO_EN_OFERTA') {
         claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
-        textoEstado = 'GRUPO SIN<br>OFERTA';
+        textoEstado = 'GRUPO SIN OFERTA';
     } else if (estado === 'REVISAR_PROGRAMA_DIFERENTE') {
         const coincidencia = row.coincidencia_programa;
         if (coincidencia === 'ALTA') {
             claseEstado = 'bg-amber-100 text-amber-800 border-amber-300';
-            textoEstado = 'PROGRAMA<br>SIMILAR';
+            textoEstado = 'PROG. SIMILAR';
         } else if (coincidencia === 'MEDIA') {
             claseEstado = 'bg-amber-100 text-amber-800 border-amber-300';
-            textoEstado = 'PROGRAMA SIMILAR<br>(R)';
+            textoEstado = 'PROGR. SIMILAR (R)';
         } else {
             claseEstado = 'bg-red-100 text-red-800 border-red-300';
-            textoEstado = 'PROGRAMA<br>DIFERENTE';
+            textoEstado = 'PROGR.DIFERENTE';
         }
         const pct = (row.similitud_programa !== null && row.similitud_programa !== undefined)
             ? Math.round(row.similitud_programa * 100) : 'N/D';
         tooltipPrincipal = `Programa Labor: ${row.programa_labor || '—'} | Programa Oferta: ${row.programa_oferta || '—'} | Similitud: ${pct}% | Motivo: ${row.motivo_programa || ''}`;
     } else if (estado === 'LABOR_INEXISTENTE') {
         claseEstado = 'bg-pink-100 text-pink-800 border-pink-300';
-        textoEstado = 'NO EXISTE<br>EN LABOR';
+        textoEstado = 'NO EXISTE EN LABOR';
         tooltipPrincipal = 'El registro existe en Oferta, pero no se encontró una asignación correspondiente en Labor.';
         programaContexto = row.programa_oferta || '';
     } else if (estado === 'CERO_MATRICULADOS') {
         claseEstado = 'bg-orange-100 text-orange-800 border-orange-300';
-        textoEstado = '0<br>MATRICULADOS';
+        textoEstado = '0 MATRICULAS';
         tooltipPrincipal = 'La oferta asociada a este registro tiene cero estudiantes matriculados.';
     } else if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE') {
          claseEstado = 'bg-indigo-100 text-indigo-800 border-indigo-300 badge-codigo-xs';
-        textoEstado = 'REVISAR<br>CÓDIGO MATERIA';
+        textoEstado = 'REVISAR CÓDIGO';
         const dc = row.detalle_codigo_posible_error || {};
         const pct = (dc.similitud_programa !== null && dc.similitud_programa !== undefined)
             ? Math.round(dc.similitud_programa * 100) : 'N/D';
@@ -1107,7 +1193,7 @@ function renderAlertasCombinadas(row) {
             ? `Duplicidad de grupo: ${detalleDup.docentes || ''} · Horas totales: ${detalleDup.horas_totales ?? '—'} · PE: ${detalleDup.pe_unico ?? '—'} · Exceso: ${detalleDup.exceso_horas ?? '—'}`
             : 'Este grupo tiene varios docentes asignados y la suma de horas supera el PE.';
         badgesSecundarios.push(
-            `<span class="badge-alerta badge-alerta-secundario con-salto bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">HORAS<br>EXCEDE PE</span>`
+            `<span class="badge-alerta badge-alerta-secundario con-salto bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" title="${esc(tooltipDup)}">HORAS EXCEDE PE</span>`
         );
     }
 
@@ -1121,7 +1207,7 @@ function renderAlertasCombinadas(row) {
     // ---- NUEVO: PROGRAMA SIMILAR / DIFIERE (solo para REVISAR_CODIGO_MATERIA_DIFERENTE) ----
     if (estado === 'REVISAR_CODIGO_MATERIA_DIFERENTE' && row.coincidencia_programa && ['ALTA','MEDIA','BAJA'].includes(row.coincidencia_programa)) {
         const pct = row.similitud_programa !== null && row.similitud_programa !== undefined ? Math.round(row.similitud_programa * 100) : 0;
-        const texto = (row.coincidencia_programa === 'ALTA' || row.coincidencia_programa === 'MEDIA') ? `PROGRAMA SIMILAR (${pct}%)` : 'PROGRAMA DIFIERE';
+        const texto = (row.coincidencia_programa === 'ALTA' || row.coincidencia_programa === 'MEDIA') ? `PROGRAMA SIMILAR ` : 'PROGRAMA DIFIERE';
         const tooltip = `Programa Labor: ${row.programa_labor || '—'} | Programa Oferta: ${row.programa_oferta || '—'} | Similitud: ${pct}%`;
         badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-violet-100 text-violet-800 border-violet-300" title="${esc(tooltip)}">${texto}</span>`);
     }
@@ -1147,7 +1233,50 @@ function renderAlertasCombinadas(row) {
     if (mostrarCeroMatriculados) {
         badgesSecundarios.push(`<span class="badge-alerta badge-alerta-secundario bg-orange-100 text-orange-800 border-orange-300" title="El grupo asociado a este cruce no tiene estudiantes matriculados.">0 MATRICULADOS</span>`);
     }
+                       // ---- CUPO SUBUTILIZADO ----
+    // Se muestra únicamente en filas que tuvieron cruce exitoso con Oferta
+    // (es decir, filas con oferta_id_asociada real). Si la fila no tiene
+    // oferta (OFERTA_INEXISTENTE / FALTA_GRUPO_EN_OFERTA / LABOR_INEXISTENTE),
+    // no aplica, porque el problema real ahí es falta de oferta, no exceso.
+        // ---- CUPO SUBUTILIZADO ----
+    const tieneCruceConOferta =
+        (row.fuente_principal === 'LABOR') && !!(row.oferta_id_asociada);
+    if (
+        row.alerta_cupo_subutilizado === 'CUPO_SUBUTILIZADO' &&
+        row.detalle_cupo_subutilizado &&
+        tieneCruceConOferta
+    ) {
+        const d = row.detalle_cupo_subutilizado;
+        const pct = Number(d.porcentaje_cupo_vacio) || 0;
 
+        // Umbral de severidad: si el 70% o más del cupo ofertado está
+        // vacío, el badge se pinta con un color fuerte para que salte a la
+        // vista del auditor.
+        const UMBRAL_SEVERO = 70;
+        const esSevero = pct >= UMBRAL_SEVERO;
+
+        const claseBadge = esSevero
+            ? 'bg-rose-200 text-rose-900 border-rose-400 font-extrabold shadow-md'
+            : 'bg-teal-100 text-teal-800 border-teal-300';
+
+        const etiqueta = esSevero
+            ? `CUPO SUBUTILIZADO ${pct}%`
+            : 'CUPO SUBUTILIZADO';
+
+        const cupoLibre = d.total_cupo - d.total_matriculados;
+
+        const tooltip = `Posibles cupos subutilizados según número de matriculados. `
+            + `Materia ${d.codigo_materia}: ${d.grupos_oferta} grupo(s) de Oferta que cruzaron con Labor `
+            + `(cupo total: ${d.total_cupo}, cupo máximo: ${d.cupo_max}), `
+            + `${d.total_matriculados} matriculados en total. `
+            + `Cupo sin usar: ${cupoLibre} de ${d.total_cupo} (${pct}%). `
+            + `La matrícula cabe en ${d.grupos_necesarios} grupo(s) respetando la capacidad real de cada grupo. `
+            + `Posible reducir ${d.grupos_sobrantes} grupo(s).`;
+
+        badgesSecundarios.push(
+            `<span class="badge-alerta badge-alerta-secundario ${claseBadge}" title="${esc(tooltip)}">${etiqueta}</span>`
+        );
+    }
     // -----------------------------------------------------------
     // 3. Ensamblado final
     // -----------------------------------------------------------
@@ -1161,6 +1290,10 @@ function badgeHistorico(row) {
     if (!row.alerta_historica) return `<span class="text-gray-300 text-10px">—</span>`;
 
     const d = row.salto_detalle || {};
+    if (row.alerta_historica === 'SIN_HISTORIAL') {
+        const tooltip = `Esta materia aparece por primera vez en Labor${d.periodo_inmediato ? ' (período actual: ' + d.periodo_inmediato + ')' : ''}. No existe registro previo con este código en ningún período anterior.`;
+        return `<button type="button" onclick="abrirModalMateria('${esc(row.codigo_materia)}')" title="${esc(tooltip)}" class="inline-block whitespace-nowrap bg-sky-100 text-sky-800 font-bold px-2 py-1 rounded-full text-10px cursor-pointer hover:bg-sky-200 transition-colors border border-sky-300">nueva en labor</button>`;
+    }
     const salto = (d.grupos_act ?? 0) - (d.grupos_prev ?? 0);
     const baseEspecial = (d.base_es_inmediato === false) && d.periodo_anterior;
     const notaBase = baseEspecial ? `(ojo: no existió en ${d.periodo_inmediato}; se comparó con ${d.periodo_anterior})` : '';
@@ -1173,7 +1306,7 @@ function badgeHistorico(row) {
     if (row.alerta_historica === 'SALTO_FUERTE') {
         boton = `<button type="button" onclick="abrirModalMateria('${esc(row.codigo_materia)}')" title="${esc(tooltip)}" class="inline-block whitespace-nowrap bg-red-100 text-red-800 font-bold px-2 py-1 rounded-full text-10px cursor-pointer hover:bg-red-200 transition-colors ${borde} border-red-400">Salto +${salto}</button>`;
     } else {
-        boton = `<button type="button" onclick="abrirModalMateria('${esc(row.codigo_materia)}')" title="${esc(tooltip)}" class="inline-block whitespace-nowrap bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded-full text-10px cursor-pointer hover:bg-emerald-100 transition-colors ${borde} border-emerald-400">+${salto} (salto justificado)</button>`;
+        boton = `<button type="button" onclick="abrirModalMateria('${esc(row.codigo_materia)}')" title="${esc(tooltip)}" class="inline-block whitespace-nowrap bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded-full text-10px cursor-pointer hover:bg-emerald-100 transition-colors ${borde} border-emerald-400">+${salto} (justificado)</button>`;
     }
     return `<div class="inline-flex flex-col items-center">${boton}${notaVisible}</div>`;
 }

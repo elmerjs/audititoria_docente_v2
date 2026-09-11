@@ -276,11 +276,7 @@ function filaOfertaSinLabor($oferta)
         'oferta_id_asociada' => $oferta['id'] ?? null,
     ];
 }
-
-/**
- * Búsqueda tolerante (sin tildes, sin mayúsculas, sin espacios extra) sobre
- * una colección combinada de filas Labor / Oferta-sin-Labor.
- */
+   
 function filtrarPorBusqueda(array $filas, $busqueda)
 {
     $busqueda = trim((string)$busqueda);
@@ -1095,7 +1091,7 @@ function construirAuditoria(PDO $pdo, array $filtros)
     }
     unset($row);
 
-    /* -----------------------------------------------------------------
+        /* -----------------------------------------------------------------
        8. Histórico por materia, independiente del docente
        ----------------------------------------------------------------- */
     $mapaOrden = $pdo->query("SELECT periodo, orden_cronologico FROM periodo_catalogo")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -1114,16 +1110,26 @@ function construirAuditoria(PDO $pdo, array $filtros)
 
     $ofeHist = [];
     if (!empty($alertas)) {
-        $rsHist = $pdo->query("SELECT periodo, TRIM(codigo_materia) AS codigo_materia, COUNT(*) AS grupos,
+        $rsHist = $pdo->query("SELECT periodo, TRIM(UPPER(codigo_materia)) AS codigo_materia, COUNT(*) AS grupos,
                                        COALESCE(SUM(matriculados), 0) AS matriculados, MAX(cupo) AS cupo
                                 FROM oferta
-                                GROUP BY periodo, TRIM(codigo_materia)");
+                                GROUP BY periodo, TRIM(UPPER(codigo_materia))");
         foreach ($rsHist->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $ofeHist[$r['periodo']][$r['codigo_materia']] = [
                 'grupos' => (int)$r['grupos'],
                 'matriculados' => (int)$r['matriculados'],
                 'cupo' => (int)($r['cupo'] ?? 0),
             ];
+        }
+    }
+
+    $labHist = [];
+    if (!empty($alertas)) {
+        $rsHistLab = $pdo->query("SELECT periodo, TRIM(UPPER(codigo_materia)) AS codigo_materia, COUNT(*) AS grupos
+                                   FROM labor
+                                   GROUP BY periodo, TRIM(UPPER(codigo_materia))");
+        foreach ($rsHistLab->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $labHist[$r['periodo']][$r['codigo_materia']] = (int)$r['grupos'];
         }
     }
 
@@ -1135,17 +1141,52 @@ function construirAuditoria(PDO $pdo, array $filtros)
         if ($codigo === '') {
             continue;
         }
-        $actual = $ofeHist[$periodo][$codigo] ?? null;
+        $codigoNorm = mb_strtoupper($codigo, 'UTF-8');
+
+        $actual = $ofeHist[$periodo][$codigoNorm] ?? null;
         if ($actual === null) {
+            continue;
+        }
+
+        // ---- NUEVO: SIN_HISTORIAL (basado en labor, no en oferta) ----
+        // Se considera "sin historial" si NO existe ningún registro de
+        // labor con este mismo codigo_materia en NINGÚN período anterior
+        // al actual, independientemente del docente/programa.
+        $hayLaborPrevio = false;
+        foreach ($prevPeriodos as $p => $orden) {
+            if (isset($labHist[$p][$codigoNorm])) {
+                $hayLaborPrevio = true;
+                break;
+            }
+        }
+
+        if (!$hayLaborPrevio) {
+            $estadoActual = $row['estado_alerta'] ?? '';
+            if (($row['fuente_principal'] ?? 'LABOR') === 'LABOR'
+                && in_array($estadoActual, ['OK', 'CERO_MATRICULADOS'], true)
+            ) {
+                $row['alerta_historica'] = 'SIN_HISTORIAL';
+                $row['salto_detalle'] = [
+                    'periodo_anterior' => null,
+                    'periodo_inmediato' => $periodoInmediato,
+                    'base_es_inmediato' => false,
+                    'grupos_prev' => 0,
+                    'grupos_act' => 0,
+                    'mat_prev' => 0,
+                    'mat_act' => 0,
+                    'cupo' => 0,
+                    'motivo' => 'Esta materia aparece por primera vez en Labor; no existe registro en períodos anteriores.',
+                ];
+            }
             continue;
         }
 
         $periodoBase = null;
         $base = null;
         foreach ($prevPeriodos as $p => $orden) {
-            if (isset($ofeHist[$p][$codigo])) {
+            if (isset($ofeHist[$p][$codigoNorm])) {
                 $periodoBase = $p;
-                $base = $ofeHist[$p][$codigo];
+                $base = $ofeHist[$p][$codigoNorm];
                 break;
             }
         }
@@ -1191,7 +1232,6 @@ function construirAuditoria(PDO $pdo, array $filtros)
         ];
     }
     unset($row);
-
     /* -----------------------------------------------------------------
        9. COBERTURA HORARIA POR MATERIA + PROGRAMA
        
@@ -1309,7 +1349,240 @@ function construirAuditoria(PDO $pdo, array $filtros)
         }
     }
     unset($row);
+          /* -----------------------------------------------------------------
+       9c. ALERTA SECUNDARIA: CUPO_SUBUTILIZADO  (CORREGIDO)
 
+       Regla (Interpretación C — respeta la capacidad real de cada grupo):
+       SOLO se consideran los grupos de Oferta con cruce GENUINO por
+       código con Labor (mismo periodo + identificación + codigo_materia).
+       - Las filas huérfanas (fuente_principal='OFERTA') nunca cuentan.
+       - Las filas cuyo cruce se resolvió por REVISAR_CODIGO_MATERIA_
+         DIFERENTE tampoco cuentan para la materia de la OFerta asociada:
+         ese diagnóstico consume ofertas libres de OTRA materia del mismo
+         docente (pasada 3), así que su oferta_id_asociada NO prueba que
+         el grupo pertenezca realmente a esta materia. Contarlo inflaba
+         el cálculo con grupos huérfanos (caso MUS0424 / 175297).
+       - La agrupación es por codigo_materia REAL de Oferta.
+
+       Para cada materia (codigo_materia + periodo):
+       1. Se agrupan los grupos de Oferta únicos con cruce genuino.
+       2. Se calcula cuántos grupos harían falta para alojar la matrícula
+          total usando los cupos REALES (bin packing greedy).
+       3. Si sobran grupos Y al quedarnos solo con los necesarios sigue
+          habiendo al menos un 10% de holgura de cupo, se activa la alerta.
+       ----------------------------------------------------------------- */
+    $cupoSubutilizado = [];
+    if (!empty($alertas)) {
+
+        // ============================================================
+        // DEBUG TEMPORAL — BORRAR DESPUÉS DE VERIFICAR LA CORRECCIÓN
+        // Vuelca las filas MUS0424 relevantes y las claves finales del
+        // mapa de grupos cruzados, para confirmar que 175297 ya no entra.
+        // ============================================================
+        if ($periodo === '2026.2') {
+            $debugMUS = array_values(array_map(function ($r) {
+                return [
+                    'docente' => $r['docente'] ?? null,
+                    'fuente_principal' => $r['fuente_principal'] ?? null,
+                    'estado_alerta' => $r['estado_alerta'] ?? null,
+                    'codigo_materia' => $r['codigo_materia'] ?? null,
+                    'codigo_materia_oferta' => $r['codigo_materia_oferta'] ?? null,
+                    'grupo_oferta' => $r['grupo_oferta'] ?? null,
+                    'oferta_id_asociada' => $r['oferta_id_asociada'] ?? null,
+                ];
+            }, array_filter($alertas, function ($r) {
+                return ($r['codigo_materia'] ?? '') === 'MUS0424'
+                    || ($r['codigo_materia_oferta'] ?? '') === 'MUS0424';
+            })));
+            error_log('DEBUG 9c MUS0424 filas: ' . json_encode($debugMUS));
+        }
+        // ============ FIN DEBUG TEMPORAL ============
+
+        // Construir el mapa de grupos de Oferta con cruce GENUINO.
+        // Clave: codigo_materia_oferta_normalizado + '|' + grupo_oferta_normalizado
+        // Valor: ['matriculados' => int, 'cupo' => int]
+        $gruposOfertaCruzados = [];
+        foreach ($alertas as $rowAux) {
+            // Solo filas de docente real (cruce Labor↔Oferta). Las filas
+            // huérfanas (fuente 'OFERTA') nunca cuentan.
+            if (($rowAux['fuente_principal'] ?? 'LABOR') !== 'LABOR') {
+                continue;
+            }
+
+            // CORRECCIÓN (anti-inflado): exigir cruce genuino por código.
+            // oferta_id_asociada NO es suficiente: la pasada 3 (diagnóstico
+            // de "posible código erróneo") puede asignar a una fila Labor
+            // una oferta de OTRA materia del mismo docente. Esas filas
+            // tienen codigo_materia (Labor) != codigo_materia_oferta, y su
+            // grupo NO pertenece realmente a la materia de la oferta.
+            $codLaborAux = normalizarCodigoMateria($rowAux['codigo_materia'] ?? '');
+            $codOfertaAux = normalizarCodigoMateria(
+                $rowAux['codigo_materia_oferta']
+                ?? $rowAux['codigomateriaoferta']
+                ?? ''
+            );
+            if ($codOfertaAux === '' || $codOfertaAux !== $codLaborAux) {
+                continue;
+            }
+
+            $grupoOfAux = trim((string)($rowAux['grupo_oferta'] ?? $rowAux['grupooferta'] ?? ''));
+            $ofertaIdAux = $rowAux['oferta_id_asociada'] ?? null;
+
+            if ($grupoOfAux === '' || empty($ofertaIdAux)) {
+                continue;
+            }
+
+            $grupoOfAuxNorm = mb_strtoupper($grupoOfAux, 'UTF-8');
+            $claveAux = $codOfertaAux . '|' . $grupoOfAuxNorm;
+
+            $matAux = $rowAux['matriculados_oferta']
+                ?? $rowAux['matriculadosoferta']
+                ?? null;
+            $cupoAux = $rowAux['cupo_oferta']
+                ?? $rowAux['cupooferta']
+                ?? null;
+
+            if (!isset($gruposOfertaCruzados[$claveAux])) {
+                $gruposOfertaCruzados[$claveAux] = [
+                    'matriculados' => is_numeric($matAux) ? (int)$matAux : 0,
+                    'cupo'         => is_numeric($cupoAux) ? (int)$cupoAux : 0,
+                ];
+            } else {
+                // Si hubiera repetidos por co-docencia, tomamos el máximo
+                if (is_numeric($matAux) && (int)$matAux > $gruposOfertaCruzados[$claveAux]['matriculados']) {
+                    $gruposOfertaCruzados[$claveAux]['matriculados'] = (int)$matAux;
+                }
+                if (is_numeric($cupoAux) && (int)$cupoAux > $gruposOfertaCruzados[$claveAux]['cupo']) {
+                    $gruposOfertaCruzados[$claveAux]['cupo'] = (int)$cupoAux;
+                }
+            }
+        }
+
+        // ============================================================
+        // DEBUG TEMPORAL — BORRAR DESPUÉS DE VERIFICAR LA CORRECCIÓN
+        // ============================================================
+        if ($periodo === '2026.2') {
+            error_log('DEBUG 9c gruposCruzados MUS0424: '
+                . json_encode(array_keys(array_filter(array_keys($gruposOfertaCruzados), function ($k) {
+                    return strpos($k, 'MUS0424|') === 0;
+                }))));
+        }
+        // ============ FIN DEBUG TEMPORAL ============
+
+        // Agrupar los grupos cruzados por codigo_materia
+        $gruposPorMateria = [];
+        foreach ($gruposOfertaCruzados as $claveAux => $infoAux) {
+            [$codAux, $grupoOfAux] = explode('|', $claveAux, 2);
+            $gruposPorMateria[$codAux][] = [
+                'matriculados' => $infoAux['matriculados'],
+                'cupo'         => $infoAux['cupo'],
+            ];
+        }
+
+        foreach ($gruposPorMateria as $codigoMateria => $grupos) {
+            $gruposOferta = count($grupos);
+            if ($gruposOferta < 2) {
+                continue;
+            }
+
+            $totalMatriculados = 0;
+            $totalCupo = 0;
+            $cupoMax = 0;
+            $cupos = [];
+            foreach ($grupos as $g) {
+                $totalMatriculados += $g['matriculados'];
+                $totalCupo        += $g['cupo'];
+                $cupos[]           = $g['cupo'];
+                if ($g['cupo'] > $cupoMax) {
+                    $cupoMax = $g['cupo'];
+                }
+            }
+
+            if ($totalMatriculados <= 0) {
+                continue;
+            }
+
+            // Bin packing greedy: ordenar cupos desc y "llenar" grupos
+            rsort($cupos, SORT_NUMERIC);
+            $restante = $totalMatriculados;
+            $gruposNecesarios = 0;
+            $cupoDeLosQueQuedan = 0;
+            foreach ($cupos as $cupoGrupo) {
+                if ($restante <= 0) {
+                    break;
+                }
+                $restante -= $cupoGrupo;
+                $cupoDeLosQueQuedan += $cupoGrupo;
+                $gruposNecesarios++;
+            }
+
+            if ($restante > 0) {
+                continue;
+            }
+
+            $gruposSobrantes = $gruposOferta - $gruposNecesarios;
+            if ($gruposSobrantes < 1) {
+                continue;
+            }
+
+            // ---- MARGEN DE HOLGURA (10%) ----
+            $cupoNecesarioConHolgura = $totalMatriculados * 1.10;
+            if ($cupoDeLosQueQuedan < $cupoNecesarioConHolgura) {
+                continue;
+            }
+
+            // ---- % DE CUPO VACÍO ----
+            $cupoLibre = $totalCupo - $totalMatriculados;
+            $porcentajeCupoVacio = $totalCupo > 0
+                ? (int)round(($cupoLibre / $totalCupo) * 100)
+                : 0;
+
+            $cupoSubutilizado[$codigoMateria] = [
+                'grupos_oferta'         => $gruposOferta,
+                'total_matriculados'    => $totalMatriculados,
+                'total_cupo'            => $totalCupo,
+                'cupo_max'              => $cupoMax,
+                'grupos_necesarios'     => $gruposNecesarios,
+                'grupos_sobrantes'      => $gruposSobrantes,
+                'porcentaje_cupo_vacio' => $porcentajeCupoVacio,
+            ];
+        }
+    }
+
+    foreach ($alertas as &$row) {
+        $row['alerta_cupo_subutilizado'] = null;
+        $row['detalle_cupo_subutilizado'] = null;
+
+        $codigo = trim((string)($row['codigo_materia'] ?? ''));
+        if ($codigo === '') {
+            continue;
+        }
+        $codigoNorm = mb_strtoupper($codigo, 'UTF-8');
+        if (!isset($cupoSubutilizado[$codigoNorm])) {
+            continue;
+        }
+
+        $info = $cupoSubutilizado[$codigoNorm];
+        $row['alerta_cupo_subutilizado'] = 'CUPO_SUBUTILIZADO';
+        $row['detalle_cupo_subutilizado'] = [
+            'codigo_materia'         => $codigo,
+            'grupos_oferta'          => $info['grupos_oferta'],
+            'total_matriculados'     => $info['total_matriculados'],
+            'total_cupo'             => $info['total_cupo'],
+            'cupo_max'               => $info['cupo_max'],
+            'grupos_necesarios'      => $info['grupos_necesarios'],
+            'grupos_sobrantes'       => $info['grupos_sobrantes'],
+            'porcentaje_cupo_vacio'  => $info['porcentaje_cupo_vacio'],
+            'motivo'                 => 'La matrícula total de esta materia (' . $info['total_matriculados']
+                                      . ') ocupa solo el ' . (100 - $info['porcentaje_cupo_vacio'])
+                                      . '% del cupo ofertado (' . $info['total_cupo']
+                                      . '). La matrícula cabe en ' . $info['grupos_necesarios']
+                                      . ' de los ' . $info['grupos_oferta']
+                                      . ' grupos de Oferta que cruzaron con Labor. '
+                                      . 'Posible reducción de ' . $info['grupos_sobrantes'] . ' grupo(s).',
+        ];
+    }
+    unset($row);
     /* -----------------------------------------------------------------
        Búsqueda final tolerante sobre la colección combinada
        ----------------------------------------------------------------- */
@@ -1341,6 +1614,8 @@ function construirAuditoria(PDO $pdo, array $filtros)
         'revisar_codigo_materia' => 0,
         'duplicado_exacto' => 0,
         'cero_matriculados' => 0,
+        'cupo_subutilizado' => 0, 
+       
     ];
 
     foreach ($alertas as $row) {
@@ -1366,6 +1641,7 @@ function construirAuditoria(PDO $pdo, array $filtros)
             case 'CERO_MATRICULADOS':
                 $kpis['cero_matriculados']++;
                 break;
+
         }
         if ((int)($row['es_prestacion_servicio'] ?? 0) === 1) {
             $kpis['prestacion_servicio']++;
@@ -1376,6 +1652,11 @@ function construirAuditoria(PDO $pdo, array $filtros)
         if (($row['alerta_duplicado_exacto'] ?? null) === 'LABOR_DUPLICADO_EXACTO') {
             $kpis['duplicado_exacto']++;
         }
+        // ---- NUEVO: conteo CUPO_SUBUTILIZADO ----
+        if (($row['alerta_cupo_subutilizado'] ?? null) === 'CUPO_SUBUTILIZADO') {
+            $kpis['cupo_subutilizado']++;
+        }
+
     }
 
     return ['alertas' => $alertas, 'kpis' => $kpis];
@@ -2063,6 +2344,7 @@ try {
             $HIST_META = [
                 'SALTO_FUERTE' => ['SALTO FUERTE', 'fee2e2', 'b91c1c'],
                 'SALTO_JUSTIFICADO' => ['SALTO JUSTIFICADO', 'd1fae5', '047857'],
+                'SIN_HISTORIAL' => ['SIN HISTORIAL', 'e0f2fe', '075985'],
             ];
             $LABOR_META = [
                 'DUPLICIDAD_GRUPO_EXCESO_PE' => ['DUPLICIDAD DE GRUPO', 'fdf2f8', 'be185d'],
@@ -2078,8 +2360,8 @@ try {
             echo "\xEF\xBB\xBF";
             echo "<html xmlns:x=\"urn:schemas-microsoft-com:office:excel\"><head><meta charset=\"UTF-8\"></head><body>";
             echo '<table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-family:Arial;font-size:11px;">';
-            echo '<tr><td colspan="28" style="background:#1e3a8a;color:#fff;font-size:14px;font-weight:bold;">' . 'REPORTE DE ALERTAS - AUDITORÍA LABOR VS OFERTA' . '</td></tr>';
-            echo '<tr><td colspan="28" style="background:#eff6ff;">'
+           echo '<tr><td colspan="31" style="background:#1e3a8a;color:#fff;font-size:14px;font-weight:bold;">' . 'REPORTE DE ALERTAS - AUDITORÍA LABOR VS OFERTA' . '</td></tr>';
+            echo '<tr><td colspan="31" style="background:#eff6ff;">'
                 . '<b>Periodo:</b> ' . htmlspecialchars($filtros['periodo']) . '&nbsp;&nbsp;'
                 . '<b>Facultad:</b> ' . htmlspecialchars($filtros['facultad'] ?: 'Todas') . '&nbsp;&nbsp;'
                 . '<b>Departamento:</b> ' . htmlspecialchars($filtros['departamento'] ?: 'Todos') . '&nbsp;&nbsp;'
@@ -2099,14 +2381,15 @@ try {
                 'Tipo Contrato',
                 'Código Labor',
                 'Materia Labor',
+                'Grupo Labor',                // ← movido aquí (era 'Grupo' al final)
                 'Código Oferta',
                 'Materia Oferta',
+                'Grupo Oferta',               // ← NUEVO
                 'Programa Labor',
                 'Programa Oferta',
                 'Coincidencia programa',
                 'Similitud programa',
                 'Motivo programa',
-                'Grupo',
                 'Horas T.',
                 'PE',
                 'Matriculados',
@@ -2118,6 +2401,8 @@ try {
                 'Detalle del Salto',
                 'Base Comparación',
                 'Diagnóstico Código Materia',
+                'Alerta Cupo Subutilizado',   // ← NUEVO
+                'Detalle Cupo Subutilizado',  // ← NUEVO
             ];
             echo '<tr>';
             foreach ($headers as $h) {
@@ -2215,8 +2500,10 @@ try {
 
                 $celda($codigoLabor);
                 $celda($materiaLabor);
+                $celda($r['grupo'] ?? '');                     // ← Grupo Labor
                 $celda($codigoOferta);
                 $celda($materiaOferta);
+                $celda($r['grupo_oferta'] ?? $r['grupooferta'] ?? ''); // ← Grupo Oferta (NUEVO);
 
                 $celda($r['programa_labor']);
                 $celda($r['programa_oferta']);
@@ -2233,7 +2520,7 @@ try {
                 );
                 $celda($r['motivo_programa']);
 
-                $celda($r['grupo']);
+
                 $celda($r['horas_teoricas'], 'text-align:center;');
                 echo '<td style="' . $stylePE . '">' . htmlspecialchars((string)($peValor !== '' ? $peValor : '—')) . '</td>';
 
@@ -2259,9 +2546,41 @@ try {
                     $txtHist,
                     "background:#$bgHist;color:#$fgHist;font-weight:bold;text-align:center;"
                 );
-                $celda($detalle);
+                                $celda($detalle);
                 $celda($baseTxt);
                 $celda($diagnosticoTxt);
+
+                // ---- NUEVO: Alerta Cupo Subutilizado ----
+                                 // ---- NUEVO: Alerta Cupo Subutilizado ----
+                $tieneCupoSub = (($r['alerta_cupo_subutilizado'] ?? null) === 'CUPO_SUBUTILIZADO')
+                                && (($r['fuente_principal'] ?? 'LABOR') === 'LABOR')
+                                && !empty($r['oferta_id_asociada']);
+                if ($tieneCupoSub) {
+                    $dCS = $r['detalle_cupo_subutilizado'] ?? [];
+                    $pctCS = (int)($dCS['porcentaje_cupo_vacio'] ?? 0);
+                    $esSeveroCS = $pctCS >= 70;
+
+                    $cupoLibreCS = ($dCS['total_cupo'] ?? 0) - ($dCS['total_matriculados'] ?? 0);
+
+                    $detalleCS = 'Materia con ' . ($dCS['grupos_oferta'] ?? '?') . ' grupo(s) de Oferta que cruzaron con Labor, '
+                               . ($dCS['total_matriculados'] ?? '?') . ' matriculados en total, '
+                               . 'cupo total ' . ($dCS['total_cupo'] ?? '?') . ', cupo máximo ' . ($dCS['cupo_max'] ?? '?') . '. '
+                               . 'Cupo sin usar: ' . $cupoLibreCS . ' de ' . ($dCS['total_cupo'] ?? '?') . ' (' . $pctCS . '%). '
+                               . 'La matrícula cabe en ' . ($dCS['grupos_necesarios'] ?? '?') . ' grupo(s), '
+                               . 'sobran ' . ($dCS['grupos_sobrantes'] ?? '?') . ' grupo(s).';
+
+                    if ($esSeveroCS) {
+                        $celda('CUPO SUBUTILIZADO ' . $pctCS . '%',
+                            'background:#0f766e;color:#ffffff;font-weight:bold;text-align:center;');
+                    } else {
+                        $celda('CUPO SUBUTILIZADO',
+                            'background:#ccfbf1;color:#0f766e;font-weight:bold;text-align:center;');
+                    }
+                    $celda($detalleCS);
+                } else {
+                    $celda('', 'text-align:center;color:#999;');
+                    $celda('');
+                }
 
                 echo '</tr>';
             }
@@ -2311,6 +2630,7 @@ case 'exportar_observacion_word':
     $tabla4 = []; // Solo en Oferta
     $tablaDuplicados = []; // Registros duplicados en Labor
     $tablaSinMatriculados = []; // Grupos sin matriculados
+    $tablaPECero = []; // ← AGREGAR ESTA LÍNEA
 
     $gruposDuplicidadProcesados = [];
     $gruposDuplicadosExactoProcesados = [];
@@ -2343,7 +2663,20 @@ case 'exportar_observacion_word':
                 'cupo' => $rowActual['cupo_oferta'] ?? $rowActual['cupooferta'] ?? null,
             ];
         }
-
+          $peFila = $rowActual['pe'] ?? null;
+        $esPECeroFila = ($peFila !== null && $peFila !== '' && is_numeric($peFila) && (float)$peFila === 0.0);
+        if ($esPECeroFila) {
+            $tablaPECero[] = [
+                'departamento' => $rowActual['departamento_labor'] ?? null,
+                'docente' => $rowActual['docente'] ?? null,
+                'programa' => $rowActual['programa_labor'] ?? ($rowActual['programa_oferta'] ?? null),
+                'materia' => $rowActual['materia_labor'] ?? ($rowActual['materia_oferta'] ?? null),
+                'codigo_materia' => $rowActual['codigo_materia'] ?? ($rowActual['codigo_materia_oferta'] ?? null),
+                'grupo' => $rowActual['grupo'] ?? null,
+                'horas_teoricas' => $rowActual['horas_teoricas'] ?? null,
+                'pe' => $peFila,
+            ];
+        }
         // --- Tabla 1: Plan de estudios superado (SOLO DUPLICIDAD_PE) ---
         // CORREGIDO: FALTA_GRUPO_EN_OFERTA ya NO va aquí
         if ($esDuplicidad) {
@@ -2842,8 +3175,35 @@ case 'exportar_observacion_word':
         echo '</table><br>';
     }
 
+    // 8. PE = 0  ← NUEVA SECCIÓN
+    if (!empty($tablaPECero)) {
+        echo '<h3>&#128308; PE = 0</h3>';
+        echo '<p style="font-size:8.5pt;">Los siguientes registros tienen Punto de Equilibrio (PE) igual a 0. Este valor debe revisarse porque impide calcular la cobertura horaria correctamente.</p>';
+        echo '<table style="border-collapse:collapse;width:100%;"><tr>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">DEPARTAMENTO</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">APELLIDOS NOMBRES</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">PROGRAMA</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">NOMBRE MATERIA</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">CÓDIGO MATERIA</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">GRUPO</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">HORAS TEÓRICAS</th>'
+           . '<th style="' . $thEstilo('#b91c1c') . '">PE</th></tr>';
+        foreach ($tablaPECero as $r) {
+            echo '<tr>'
+               . $celda($r['departamento'] ?? null)
+               . $celda($r['docente'] ?? null)
+               . $celda($r['programa'] ?? null)
+               . $celda($r['materia'] ?? null)
+               . $celda($r['codigo_materia'] ?? null)
+               . $celda($r['grupo'] ?? null)
+               . $celda($r['horas_teoricas'] ?? null)
+               . $celdaPE($r['pe'] ?? null)
+               . '</tr>';
+        }
+        echo '</table><br>';
+    }
     // Mensaje final
-    if (empty($tabla1) && empty($tablaProgramaDiferente) && empty($tabla2) && empty($tabla3) && empty($tabla4) && empty($tablaDuplicados) && empty($tablaSinMatriculados)) {
+      if (empty($tabla1) && empty($tablaProgramaDiferente) && empty($tabla2) && empty($tabla3) && empty($tabla4) && empty($tablaDuplicados) && empty($tablaSinMatriculados) && empty($tablaPECero)) {
         echo '<p style="font-size:9pt;font-style:italic;">Todas las filas de esta observación ya fueron subsanadas o no se encontraron '
            . 'en el periodo vigente.</p>';
     }
